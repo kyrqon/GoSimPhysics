@@ -65,7 +65,7 @@ func Energy(mass, speed float64) (float64, error) {
 	if speed == 0 {
 		return 0, nil
 	}
-	energy := productRatio([]float64{0.5, mass, speed, speed}, nil)
+	energy := numeric.ProductRatio([]float64{0.5, mass, speed, speed}, nil)
 	if !numeric.Finite(energy) || energy == 0 {
 		return 0, fmt.Errorf("ballistics: kinetic energy is unrepresentable")
 	}
@@ -110,122 +110,11 @@ func Damage(baseDamage, energy, referenceEnergy float64) (float64, error) {
 	}
 	// A clamped result cannot overflow mathematically. Scaling avoids an
 	// underflowing intermediate energy/referenceEnergy losing a valid result.
-	damage := productRatio([]float64{baseDamage, energy}, []float64{referenceEnergy})
+	damage := numeric.ProductRatio([]float64{baseDamage, energy}, []float64{referenceEnergy})
 	return math.Min(baseDamage, damage), nil
-}
-
-// Travel is one straight segment ending at a time limit, material boundary, or
-// energy exhaustion. Time is the actual duration consumed, at most the requested
-// duration. Reached and Stopped may both be true when stopping at a boundary.
-type Travel struct {
-	Distance, Time, Energy, Speed float64
-	Reached, Stopped              bool
-}
-
-// Advance integrates a point projectile under constant opposing resistance.
-// It stops at the earliest of dt seconds, maxDistance, or energy exhaustion.
-// maxDistance may be +Inf to represent no upcoming material boundary.
-//
-// Resistance has units of energy/distance, so the exact stopping distance is
-// energy/resistance. At a boundary, remaining energy is energy-resistance*distance.
-// Finite-time movement uses constant deceleration, rather than instantaneous
-// movement through the entire target. The function never mutates caller state.
-func Advance(mass, energy, resistance, dt, maxDistance float64) (Travel, error) {
-	if !validMass(mass) || !validNonnegative(energy) || !validNonnegative(resistance) || !numeric.Finite(dt) || dt <= 0 ||
-		math.IsNaN(maxDistance) || maxDistance < 0 || math.IsInf(maxDistance, -1) {
-		return Travel{}, fmt.Errorf("ballistics: invalid advance parameters")
-	}
-	speed, err := Speed(mass, energy)
-	if err != nil {
-		return Travel{}, err
-	}
-	if energy == 0 {
-		return Travel{Reached: maxDistance == 0, Stopped: true}, nil
-	}
-	if maxDistance == 0 {
-		return Travel{Energy: energy, Speed: speed, Reached: true}, nil
-	}
-	if resistance == 0 {
-		boundaryTime := maxDistance / speed
-		if !math.IsInf(maxDistance, 1) && boundaryTime <= dt {
-			return Travel{Distance: maxDistance, Time: boundaryTime, Energy: energy, Speed: speed, Reached: true}, nil
-		}
-		distance := productRatio([]float64{speed, dt}, nil)
-		if !numeric.Finite(distance) {
-			return Travel{}, fmt.Errorf("ballistics: travel distance overflow")
-		}
-		return Travel{Distance: distance, Time: dt, Energy: energy, Speed: speed}, nil
-	}
-
-	stoppingDistance := productRatio([]float64{energy}, []float64{resistance})
-	stoppingTime := productRatio([]float64{mass, speed}, []float64{resistance})
-	stopsFirst := maxDistance >= stoppingDistance
-	eventDistance, eventTime := maxDistance, math.Inf(1)
-	eventEnergy, eventSpeed := 0.0, 0.0
-	if stopsFirst {
-		eventDistance, eventTime = stoppingDistance, stoppingTime
-	} else {
-		work := productRatio([]float64{resistance, maxDistance}, nil)
-		// At a floating-point equality with the stopping threshold, treating
-		// zero remaining energy as a stop prevents a zero-energy penetration.
-		eventEnergy = math.Max(0, energy-work)
-		eventSpeed, err = Speed(mass, eventEnergy)
-		if err != nil {
-			return Travel{}, err
-		}
-		// 2*s/(v0+v1), arranged to avoid overflowing v0+v1 or 2*s.
-		eventTime = (maxDistance / speed) / (0.5 * (1 + eventSpeed/speed))
-	}
-	if eventTime <= dt {
-		if !numeric.Finite(eventDistance) || !numeric.Finite(eventTime) {
-			return Travel{}, fmt.Errorf("ballistics: event movement is unrepresentable")
-		}
-		return Travel{
-			Distance: eventDistance, Time: eventTime, Energy: eventEnergy, Speed: eventSpeed,
-			Reached: eventDistance == maxDistance, Stopped: eventEnergy == 0,
-		}, nil
-	}
-
-	// Form dt/stopTime directly: stopTime itself can exceed MaxFloat64 while
-	// a finite requested interval still consumes a substantial energy fraction.
-	fraction := numeric.Clamp(productRatio([]float64{resistance, dt}, []float64{mass, speed}), 0, 1)
-	remainingFactor := 1 - fraction
-	outEnergy := energy * remainingFactor * remainingFactor
-	if outEnergy == 0 && remainingFactor > 0 {
-		return Travel{}, fmt.Errorf("ballistics: remaining energy is unrepresentable")
-	}
-	outSpeed, err := Speed(mass, outEnergy)
-	if err != nil {
-		return Travel{}, err
-	}
-	distance := productRatio([]float64{speed, dt, 1 - fraction*0.5}, nil)
-	if !numeric.Finite(distance) {
-		return Travel{}, fmt.Errorf("ballistics: travel distance overflow")
-	}
-	return Travel{Distance: distance, Time: dt, Energy: outEnergy, Speed: outSpeed, Stopped: outEnergy == 0}, nil
 }
 
 func validMass(mass float64) bool { return numeric.Finite(mass) && mass > 0 }
 func validNonnegative(value float64) bool {
 	return numeric.Finite(value) && value >= 0
-}
-
-// productRatio evaluates products/quotients without avoidable intermediate
-// overflow or underflow. Every denominator supplied by this package is positive.
-func productRatio(numerators, denominators []float64) float64 {
-	fraction, exponent := 1.0, 0
-	for _, value := range numerators {
-		if value == 0 {
-			return 0
-		}
-		part, power := math.Frexp(value)
-		fraction *= part
-		exponent += power
-	}
-	for _, value := range denominators {
-		part, power := math.Frexp(value)
-		fraction /= part
-		exponent -= power
-	}
-	return math.Ldexp(fraction, exponent)
 }

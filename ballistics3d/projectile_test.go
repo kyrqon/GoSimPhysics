@@ -8,11 +8,10 @@ import (
 
 	"github.com/kyrqon/GoSimPhysics/ballistics"
 	"github.com/kyrqon/GoSimPhysics/ballistics3d"
-	"github.com/kyrqon/GoSimPhysics/collision3d"
-	"github.com/kyrqon/GoSimPhysics/math3d"
+	"github.com/kyrqon/GoSimPhysics/physics3d"
 )
 
-func shot(t *testing.T, position, velocity math3d.Vec3) *ballistics3d.Projectile {
+func shot(t *testing.T, position, velocity physics3d.Vec3) *ballistics3d.Projectile {
 	t.Helper()
 	p, err := ballistics3d.NewProjectile(ballistics3d.ProjectileDef{Position: position, Velocity: velocity, Mass: 2, Damage: 100})
 	if err != nil {
@@ -21,8 +20,8 @@ func shot(t *testing.T, position, velocity math3d.Vec3) *ballistics3d.Projectile
 	return p
 }
 
-func box(id string, center, half math3d.Vec3, resistance float64) ballistics3d.Target {
-	return ballistics3d.Target{ID: id, Collider: collision3d.Collider{Shape: collision3d.Box{HalfExtents: half}, Position: center}, Material: ballistics.Material{Name: id, Resistance: resistance}}
+func box(id string, center, half physics3d.Vec3, resistance float64) ballistics3d.Target {
+	return ballistics3d.Target{ID: id, Collider: physics3d.Collider{Shape: physics3d.Box{HalfExtents: half}, Position: center}, Material: ballistics.Material{Name: id, Resistance: resistance}}
 }
 
 func near(t *testing.T, got, want, tolerance float64) {
@@ -42,10 +41,10 @@ func step(t *testing.T, p *ballistics3d.Projectile, dt float64, targets []ballis
 }
 
 func TestThinWallReducesDamageBeforeNextTarget(t *testing.T) {
-	p := shot(t, math3d.Vec3{}, math3d.Vec3{X: 10})
+	p := shot(t, physics3d.Vec3{}, physics3d.Vec3{X: 10})
 	targets := []ballistics3d.Target{
-		box("wall", math3d.Vec3{X: 2}, math3d.Vec3{X: 0.5, Y: 2, Z: 2}, 20),
-		box("target", math3d.Vec3{X: 5}, math3d.Vec3{X: 0.5, Y: 2, Z: 2}, 1000),
+		box("wall", physics3d.Vec3{X: 2}, physics3d.Vec3{X: 0.5, Y: 2, Z: 2}, 20),
+		box("target", physics3d.Vec3{X: 5}, physics3d.Vec3{X: 0.5, Y: 2, Z: 2}, 1000),
 	}
 	beforeTargets := append([]ballistics3d.Target(nil), targets...)
 	events := step(t, p, 1, targets)
@@ -61,7 +60,7 @@ func TestThinWallReducesDamageBeforeNextTarget(t *testing.T) {
 	near(t, events[2].Damage, 80, 1e-10)
 	near(t, events[2].Energy, 80, 1e-10)
 	near(t, p.State().Position.X, 4.58, 1e-10)
-	if !p.State().Stopped || p.State().Velocity != (math3d.Vec3{}) || p.State().Energy != 0 || p.State().Damage != 0 {
+	if !p.State().Stopped || p.State().Velocity != (physics3d.Vec3{}) || p.State().Energy != 0 || p.State().Damage != 0 {
 		t.Fatalf("thick target failed to stop point: %+v", p.State())
 	}
 	if !reflect.DeepEqual(events[3].ActiveTargets, []string{"target"}) {
@@ -85,8 +84,8 @@ func TestThinWallReducesDamageBeforeNextTarget(t *testing.T) {
 }
 
 func TestThickWallStopsAtEnergyLimitedDepth(t *testing.T) {
-	p := shot(t, math3d.Vec3{}, math3d.Vec3{X: 10})
-	wall := box("thick", math3d.Vec3{X: 11.5}, math3d.Vec3{X: 10, Y: 2, Z: 2}, 20)
+	p := shot(t, physics3d.Vec3{}, physics3d.Vec3{X: 10})
+	wall := box("thick", physics3d.Vec3{X: 11.5}, physics3d.Vec3{X: 10, Y: 2, Z: 2}, 20)
 	events := step(t, p, 2, []ballistics3d.Target{wall})
 	// Initial E=100; stopping depth=E/R=5 after entering at x=1.5.
 	near(t, p.State().Position.X, 6.5, 1e-11)
@@ -98,8 +97,8 @@ func TestThickWallStopsAtEnergyLimitedDepth(t *testing.T) {
 
 func TestActualSphereChordAndArbitraryBoxRotation(t *testing.T) {
 	t.Run("sphere chord", func(t *testing.T) {
-		p := shot(t, math3d.Vec3{Y: 0.6}, math3d.Vec3{X: 10})
-		target := ballistics3d.Target{ID: "sphere", Collider: collision3d.Collider{Shape: collision3d.Sphere{Radius: 1}, Position: math3d.Vec3{X: 2}}, Material: ballistics.Material{Resistance: 10}}
+		p := shot(t, physics3d.Vec3{Y: 0.6}, physics3d.Vec3{X: 10})
+		target := ballistics3d.Target{ID: "sphere", Collider: physics3d.Collider{Shape: physics3d.Sphere{Radius: 1}, Position: physics3d.Vec3{X: 2}}, Material: ballistics.Material{Resistance: 10}}
 		events := step(t, p, 0.5, []ballistics3d.Target{target})
 		if len(events) != 2 || events[1].Kind != ballistics.Exit {
 			t.Fatalf("sphere chord was not traversed: %+v", events)
@@ -110,11 +109,11 @@ func TestActualSphereChordAndArbitraryBoxRotation(t *testing.T) {
 		near(t, p.State().Energy, 84, 1e-10)
 	})
 	t.Run("three axis oblique box", func(t *testing.T) {
-		p := shot(t, math3d.Vec3{}, math3d.Vec3{X: 10})
-		n := (math3d.Vec3{X: 1, Y: 1, Z: 1}).Normalized()
-		x := math3d.Vec3{X: 1}
-		target := box("oblique", math3d.Vec3{X: 3.5}, math3d.Vec3{X: 0.5, Y: 10, Z: 10}, 10)
-		target.Collider.Rotation = math3d.QuaternionFromAxisAngle(x.Cross(n), math.Acos(x.Dot(n)))
+		p := shot(t, physics3d.Vec3{}, physics3d.Vec3{X: 10})
+		n := (physics3d.Vec3{X: 1, Y: 1, Z: 1}).Normalized()
+		x := physics3d.Vec3{X: 1}
+		target := box("oblique", physics3d.Vec3{X: 3.5}, physics3d.Vec3{X: 0.5, Y: 10, Z: 10}, 10)
+		target.Collider.Rotation = physics3d.QuaternionFromAxisAngle(x.Cross(n), math.Acos(x.Dot(n)))
 		events := step(t, p, 1, []ballistics3d.Target{target})
 		if len(events) != 2 {
 			t.Fatalf("oblique box did not have entry and exit: %+v", events)
@@ -129,11 +128,11 @@ func TestActualSphereChordAndArbitraryBoxRotation(t *testing.T) {
 
 func TestOverlappingMaterialsAndFramePartitionAreConsistent(t *testing.T) {
 	targets := []ballistics3d.Target{
-		box("first", math3d.Vec3{X: 2}, math3d.Vec3{X: 1, Y: 2, Z: 2}, 10),
-		box("second", math3d.Vec3{X: 3}, math3d.Vec3{X: 1, Y: 2, Z: 2}, 20),
+		box("first", physics3d.Vec3{X: 2}, physics3d.Vec3{X: 1, Y: 2, Z: 2}, 10),
+		box("second", physics3d.Vec3{X: 3}, physics3d.Vec3{X: 1, Y: 2, Z: 2}, 20),
 	}
 	run := func(count int) (ballistics3d.State, []ballistics3d.Event) {
-		p := shot(t, math3d.Vec3{}, math3d.Vec3{X: 10})
+		p := shot(t, physics3d.Vec3{}, physics3d.Vec3{X: 10})
 		var all []ballistics3d.Event
 		for i := 0; i < count; i++ {
 			all = append(all, step(t, p, 2/float64(count), targets)...)
@@ -164,16 +163,16 @@ func TestOverlappingMaterialsAndFramePartitionAreConsistent(t *testing.T) {
 }
 
 func TestRigidTransformPreservesPenetrationAndCrossFrameEntries(t *testing.T) {
-	rotation := math3d.QuaternionFromAxisAngle(math3d.Vec3{X: 1, Y: 2, Z: 3}, 0.73)
-	translation := math3d.Vec3{X: -4, Y: 7, Z: 3}
+	rotation := physics3d.QuaternionFromAxisAngle(physics3d.Vec3{X: 1, Y: 2, Z: 3}, 0.73)
+	translation := physics3d.Vec3{X: -4, Y: 7, Z: 3}
 	targets := []ballistics3d.Target{
-		box("wall", math3d.Vec3{X: 2}, math3d.Vec3{X: 0.5, Y: 2, Z: 2}, 20),
+		box("wall", physics3d.Vec3{X: 2}, physics3d.Vec3{X: 0.5, Y: 2, Z: 2}, 20),
 	}
 	rotatedTargets := append([]ballistics3d.Target(nil), targets...)
 	rotatedTargets[0].Collider.Position = rotation.Rotate(targets[0].Collider.Position).Add(translation)
 	rotatedTargets[0].Collider.Rotation = rotation
-	plain := shot(t, math3d.Vec3{}, math3d.Vec3{X: 10})
-	rotated := shot(t, translation, rotation.Rotate(math3d.Vec3{X: 10}))
+	plain := shot(t, physics3d.Vec3{}, physics3d.Vec3{X: 10})
+	rotated := shot(t, translation, rotation.Rotate(physics3d.Vec3{X: 10}))
 	var plainEvents, rotatedEvents []ballistics3d.Event
 	for i := 0; i < 100; i++ {
 		plainEvents = append(plainEvents, step(t, plain, 0.01, targets)...)
@@ -197,20 +196,20 @@ func TestRigidTransformPreservesPenetrationAndCrossFrameEntries(t *testing.T) {
 }
 
 func TestStartsInsideBoundaryAndGrazingSemantics(t *testing.T) {
-	wall := box("wall", math3d.Vec3{}, math3d.Vec3{X: 1, Y: 1, Z: 1}, 10)
+	wall := box("wall", physics3d.Vec3{}, physics3d.Vec3{X: 1, Y: 1, Z: 1}, 10)
 	t.Run("starts inside", func(t *testing.T) {
-		p := shot(t, math3d.Vec3{}, math3d.Vec3{X: 10})
+		p := shot(t, physics3d.Vec3{}, physics3d.Vec3{X: 10})
 		all := step(t, p, 0.02, []ballistics3d.Target{wall})
 		all = append(all, step(t, p, 0.02, []ballistics3d.Target{wall})...)
 		all = append(all, step(t, p, 0.5, []ballistics3d.Target{wall})...)
-		if len(all) != 2 || !all[0].StartedInside || all[0].Normal != (math3d.Vec3{}) {
+		if len(all) != 2 || !all[0].StartedInside || all[0].Normal != (physics3d.Vec3{}) {
 			t.Fatalf("starting inside must hit once with no entry face: %+v", all)
 		}
 		near(t, all[1].Position.X, 1, 1e-12)
 		near(t, p.State().Energy, 90, 1e-10)
 	})
 	t.Run("starts at exit", func(t *testing.T) {
-		p := shot(t, math3d.Vec3{X: 1}, math3d.Vec3{X: 10})
+		p := shot(t, physics3d.Vec3{X: 1}, physics3d.Vec3{X: 10})
 		if events := step(t, p, 0.1, []ballistics3d.Target{wall}); len(events) != 0 {
 			t.Fatalf("outward boundary launch damaged material: %+v", events)
 		}
@@ -218,10 +217,10 @@ func TestStartsInsideBoundaryAndGrazingSemantics(t *testing.T) {
 	})
 	for _, target := range []ballistics3d.Target{
 		wall,
-		{ID: "sphere", Collider: collision3d.Collider{Shape: collision3d.Sphere{Radius: 1}}, Material: ballistics.Material{Resistance: 10}},
+		{ID: "sphere", Collider: physics3d.Collider{Shape: physics3d.Sphere{Radius: 1}}, Material: ballistics.Material{Resistance: 10}},
 	} {
 		t.Run("grazing "+target.ID, func(t *testing.T) {
-			p := shot(t, math3d.Vec3{X: -2, Y: 1}, math3d.Vec3{X: 10})
+			p := shot(t, physics3d.Vec3{X: -2, Y: 1}, physics3d.Vec3{X: 10})
 			if events := step(t, p, 0.5, []ballistics3d.Target{target}); len(events) != 0 {
 				t.Fatalf("boundary-only path generated material events: %+v", events)
 			}
@@ -231,15 +230,15 @@ func TestStartsInsideBoundaryAndGrazingSemantics(t *testing.T) {
 }
 
 func TestRemovedTargetExitsWithoutRepeatedDamage(t *testing.T) {
-	p := shot(t, math3d.Vec3{}, math3d.Vec3{X: 10})
-	wall := box("wall", math3d.Vec3{}, math3d.Vec3{X: 5, Y: 1, Z: 1}, 10)
+	p := shot(t, physics3d.Vec3{}, physics3d.Vec3{X: 10})
+	wall := box("wall", physics3d.Vec3{}, physics3d.Vec3{X: 5, Y: 1, Z: 1}, 10)
 	first := step(t, p, 0.02, []ballistics3d.Target{wall})
 	if len(first) != 1 || first[0].Kind != ballistics.Hit {
 		t.Fatal("fixture did not start inside wall")
 	}
 	energy, position, time := p.State().Energy, p.State().Position, p.State().Time
 	more := step(t, p, 0.02, nil)
-	if len(more) != 1 || more[0].Kind != ballistics.Exit || more[0].Damage != 0 || more[0].Normal != (math3d.Vec3{}) || more[0].Position != position {
+	if len(more) != 1 || more[0].Kind != ballistics.Exit || more[0].Damage != 0 || more[0].Normal != (physics3d.Vec3{}) || more[0].Position != position {
 		t.Fatalf("target removal must report a zero-time exit: %+v", more)
 	}
 	near(t, more[0].Time, time, 1e-12)
@@ -247,14 +246,14 @@ func TestRemovedTargetExitsWithoutRepeatedDamage(t *testing.T) {
 }
 
 func TestValidationBudgetAndOverflowAreAtomic(t *testing.T) {
-	p := shot(t, math3d.Vec3{}, math3d.Vec3{X: 10})
-	wall := box("wall", math3d.Vec3{X: 2}, math3d.Vec3{X: 0.5, Y: 1, Z: 1}, 10)
+	p := shot(t, physics3d.Vec3{}, physics3d.Vec3{X: 10})
+	wall := box("wall", physics3d.Vec3{X: 2}, physics3d.Vec3{X: 0.5, Y: 1, Z: 1}, 10)
 	badCases := [][]ballistics3d.Target{
 		{wall, wall},
 		{{ID: "", Collider: wall.Collider}},
-		{{ID: "bad", Collider: collision3d.Collider{Shape: collision3d.Box{}}, Material: wall.Material}},
+		{{ID: "bad", Collider: physics3d.Collider{Shape: physics3d.Box{}}, Material: wall.Material}},
 		{{ID: "bad", Collider: wall.Collider, Material: ballistics.Material{Resistance: math.Inf(1)}}},
-		{wall, {ID: "late", Collider: collision3d.Collider{Shape: collision3d.Sphere{Radius: -1}, Position: math3d.Vec3{X: 100}}}},
+		{wall, {ID: "late", Collider: physics3d.Collider{Shape: physics3d.Sphere{Radius: -1}, Position: physics3d.Vec3{X: 100}}}},
 	}
 	before := p.State()
 	for _, targets := range badCases {
@@ -281,7 +280,7 @@ func TestValidationBudgetAndOverflowAreAtomic(t *testing.T) {
 	if p.State().Position == copy.Position {
 		t.Fatal("state snapshot aliased the projectile")
 	}
-	fast, err := ballistics3d.NewProjectile(ballistics3d.ProjectileDef{Velocity: math3d.Vec3{X: math.MaxFloat64 / 2}, Mass: 1e-308})
+	fast, err := ballistics3d.NewProjectile(ballistics3d.ProjectileDef{Velocity: physics3d.Vec3{X: math.MaxFloat64 / 2}, Mass: 1e-308})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,10 +291,10 @@ func TestValidationBudgetAndOverflowAreAtomic(t *testing.T) {
 }
 
 func TestLaunchValidation(t *testing.T) {
-	valid := ballistics3d.ProjectileDef{Velocity: math3d.Vec3{X: 10}, Mass: 1, Damage: 100}
+	valid := ballistics3d.ProjectileDef{Velocity: physics3d.Vec3{X: 10}, Mass: 1, Damage: 100}
 	changes := []func(*ballistics3d.ProjectileDef){
 		func(d *ballistics3d.ProjectileDef) { d.Position.Z = math.NaN() },
-		func(d *ballistics3d.ProjectileDef) { d.Velocity = math3d.Vec3{} },
+		func(d *ballistics3d.ProjectileDef) { d.Velocity = physics3d.Vec3{} },
 		func(d *ballistics3d.ProjectileDef) { d.Velocity.Y = math.Inf(1) },
 		func(d *ballistics3d.ProjectileDef) { d.Mass = 0 },
 		func(d *ballistics3d.ProjectileDef) { d.Damage = -1 },

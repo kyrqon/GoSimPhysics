@@ -193,7 +193,7 @@ func Advance(before State, intervals []Interval, dt float64, maxEvents int) (Sta
 		if !numeric.Finite(resistance) {
 			return State{}, 0, nil, fmt.Errorf("ballistics: overlapping resistance overflow")
 		}
-		travel, err := ballistics.Advance(after.Mass, after.Energy, resistance, remaining, gap)
+		travel, err := advanceTravel(after.Mass, after.Energy, resistance, remaining, gap)
 		if err != nil {
 			return State{}, 0, nil, err
 		}

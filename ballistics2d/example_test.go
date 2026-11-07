@@ -5,13 +5,12 @@ import (
 
 	"github.com/kyrqon/GoSimPhysics/ballistics"
 	"github.com/kyrqon/GoSimPhysics/ballistics2d"
-	"github.com/kyrqon/GoSimPhysics/collision2d"
-	"github.com/kyrqon/GoSimPhysics/math2d"
+	"github.com/kyrqon/GoSimPhysics/physics2d"
 )
 
 func ExampleProjectile_Step() {
 	shot, err := ballistics2d.NewProjectile(ballistics2d.ProjectileDef{
-		Position: math2d.Vec2{X: -1}, Velocity: math2d.Vec2{X: 10},
+		Position: physics2d.Vec2{X: -1}, Velocity: physics2d.Vec2{X: 10},
 		Mass: 2, Damage: 100,
 	})
 	if err != nil {
@@ -19,9 +18,9 @@ func ExampleProjectile_Step() {
 	}
 	events, err := shot.Step(1, []ballistics2d.Target{{
 		ID: "thin barrier",
-		Collider: collision2d.Collider{
-			Shape:    collision2d.Box{HalfExtents: math2d.Vec2{X: 0.5, Y: 1}},
-			Position: math2d.Vec2{X: 0.5},
+		Collider: physics2d.Collider{
+			Shape:    physics2d.Box{HalfExtents: physics2d.Vec2{X: 0.5, Y: 1}},
+			Position: physics2d.Vec2{X: 0.5},
 		},
 		Material: ballistics.Material{Name: "game barrier", Resistance: 20},
 	}})

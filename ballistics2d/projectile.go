@@ -1,88 +1,73 @@
-// Package ballistics2d models game projectile penetration through frozen 2D
-// colliders. Projectiles are point masses following straight paths; material
-// resistance removes a configurable amount of kinetic energy per unit distance.
-// There is no gravity, finite projectile radius, ricochet, or rigid-body impulse
-// response in this layer. Hit damage is returned to the host game, not applied
-// to health automatically.
+// Package ballistics2d advances straight point projectiles through frozen 2D
+// colliders from physics2d. Material resistance consumes energy per unit path
+// length. The package returns gameplay events; the host game owns target health.
+// This model has no projectile radius, gravity, ricochet, rigid-body impulses,
+// or continuously moving target geometry.
 package ballistics2d
 
 import (
 	"fmt"
 
 	"github.com/kyrqon/GoSimPhysics/ballistics"
-	"github.com/kyrqon/GoSimPhysics/collision2d"
 	"github.com/kyrqon/GoSimPhysics/internal/numeric"
 	"github.com/kyrqon/GoSimPhysics/internal/penetration"
-	"github.com/kyrqon/GoSimPhysics/math2d"
+	"github.com/kyrqon/GoSimPhysics/physics2d"
 )
 
-// EventKind identifies a hit, exit, or final stop.
-type EventKind = ballistics.EventKind
-
-const (
-	Hit  = ballistics.Hit
-	Exit = ballistics.Exit
-	Stop = ballistics.Stop
-
-	DefaultMaxEvents = ballistics.DefaultMaxEvents
-)
-
-// ErrEventLimit means a step exceeded its event budget. No projectile state or
-// events are committed on failure. It is shared by both spatial packages.
-var ErrEventLimit = ballistics.ErrEventLimit
-
-// Target is a solid collider and its game-tuned material. IDs must be nonempty
-// and unique in each Step. Targets are frozen during a step, and their geometry
-// is copied before tracing. Reusing an ID preserves entry tracking across steps.
+// Target associates a frozen collider snapshot with a game-tuned material.
+// IDs must be nonempty and unique within each Step. Geometry is copied before
+// tracing; reusing an ID preserves material-entry tracking across steps.
 type Target struct {
 	ID       string
-	Collider collision2d.Collider
+	Collider physics2d.Collider
 	Material ballistics.Material
 }
 
-// ProjectileDef configures a new point projectile. Mass and launch speed must be
-// positive and finite, and Damage must be nonnegative and finite. MaxEvents zero
-// selects DefaultMaxEvents. Coordinates, mass, velocity, and material resistance
-// must use consistent units, for example meters, kilograms, seconds, and J/m.
+// ProjectileDef configures a point-projectile launch. Mass, launch speed, and
+// derived energy must be positive and finite; Damage must be nonnegative and
+// finite. MaxEvents zero selects ballistics.DefaultMaxEvents. Use consistent
+// units, for example meters, kilograms, seconds, and J/m for material resistance.
 type ProjectileDef struct {
-	Position, Velocity math2d.Vec2
+	Position, Velocity physics2d.Vec2
 	Mass, Damage       float64
 	MaxEvents          int
 }
 
-// State is an independent snapshot of a projectile. Damage is the damage a new
-// hit would receive at the current energy, capped at the launch damage. Time is
-// simulated age; Distance is total path length since creation.
+// State is a value snapshot of a projectile. Damage is its potential hit damage
+// at the current energy, capped at launch damage. Time is simulated age in
+// seconds; Distance is cumulative travel from launch.
 type State struct {
-	Position, Velocity                                  math2d.Vec2
+	Position, Velocity                                  physics2d.Vec2
 	Mass, Energy, InitialEnergy, Damage, Time, Distance float64
 	Stopped                                             bool
 }
 
-// Event reports a material boundary or stopping point. Time and Distance are
-// measured from projectile creation. Damage is nonzero only on Hit, once per
-// entry; Exit and Stop do not cause a second health deduction. EnergySpent is
-// the work done by this target's resistance, including previous steps. A Stop
-// lists all active targets when overlapping materials jointly stopped the shot.
-// A hit that begins inside has StartedInside set and a zero entry normal.
+// Event reports a material crossing or stopping point. Time and Distance are
+// measured from launch. Only ballistics.Hit carries damage, once per entry;
+// ballistics.Exit and ballistics.Stop carry zero damage. Normal is the outward
+// surface normal for entry or exit; a launch inside a solid, a stop, and an exit
+// caused by removing a target between steps have zero normals. StartedInside
+// identifies an entry that begins inside a solid. EnergySpent is work done by
+// this target, including earlier steps. ActiveTargets identifies every material
+// containing a stopped projectile.
 type Event struct {
 	Kind                                                     ballistics.EventKind
 	TargetID                                                 string
 	Material                                                 ballistics.Material
 	Time, Distance, Energy, EntryEnergy, EnergySpent, Damage float64
-	Position, Normal                                         math2d.Vec2
+	Position, Normal                                         physics2d.Vec2
 	StartedInside                                            bool
 	ActiveTargets                                            []string
 }
 
-// Projectile owns its flight and material-entry state. Use State to inspect it;
-// editing a returned snapshot does not change the projectile. A projectile must
-// not be copied or accessed concurrently with Step.
+// Projectile owns a straight flight path and persistent material-entry state.
+// It must not be copied or accessed concurrently with Step. Inspect it through
+// State; editing the returned snapshot does not change the projectile.
 type Projectile struct {
 	// MaxEvents bounds hit, exit, and stop events in each Step. It must be positive.
 	MaxEvents int
 
-	origin, position, velocity, direction math2d.Vec2
+	origin, position, velocity, direction physics2d.Vec2
 	state                                 penetration.State
 }
 
@@ -104,7 +89,7 @@ func NewProjectile(def ProjectileDef) (*Projectile, error) {
 	}
 	budget := def.MaxEvents
 	if budget == 0 {
-		budget = DefaultMaxEvents
+		budget = ballistics.DefaultMaxEvents
 	}
 	return &Projectile{
 		MaxEvents: budget, origin: def.Position, position: def.Position, velocity: def.Velocity,
@@ -149,24 +134,24 @@ func (p *Projectile) Step(dt float64, targets []Target) ([]Event, error) {
 		if err := target.Material.Validate(); err != nil {
 			return nil, err
 		}
-		shape, ok := collision2d.CloneShape(target.Collider.Shape)
+		shape, ok := physics2d.CloneShape(target.Collider.Shape)
 		if !ok {
 			return nil, fmt.Errorf("ballistics2d: target %q has an invalid shape", target.ID)
 		}
 		target.Collider.Shape = shape
-		if _, _, err := collision2d.Bounds(target.Collider); err != nil {
+		if _, _, err := physics2d.Bounds(target.Collider); err != nil {
 			return nil, fmt.Errorf("ballistics2d: target %q: %w", target.ID, err)
 		}
 		canonical[i] = target
 	}
 
 	intervals := make([]penetration.Interval, 0, len(targets))
-	geometry := make(map[string]collision2d.RayHit, len(targets))
+	geometry := make(map[string]physics2d.RayHit, len(targets))
 	if !p.state.Stopped {
 		for _, target := range canonical {
 			// Recast from the immutable launch point so exact boundary distances
 			// remain stable across frame partitions, including rotated walls.
-			hit, ok, err := collision2d.RayInterval(target.Collider, p.origin, p.direction)
+			hit, ok, err := physics2d.RayInterval(target.Collider, p.origin, p.direction)
 			if err != nil {
 				return nil, fmt.Errorf("ballistics2d: target %q: %w", target.ID, err)
 			}
@@ -201,7 +186,7 @@ func (p *Projectile) Step(dt float64, targets []Target) ([]Event, error) {
 		if !validVec(point) {
 			return nil, fmt.Errorf("ballistics2d: event coordinate overflow")
 		}
-		normal := math2d.Vec2{}
+		normal := physics2d.Vec2{}
 		if hit, found := geometry[scalar.TargetID]; found {
 			switch scalar.Kind {
 			case ballistics.Hit:
@@ -224,4 +209,4 @@ func (p *Projectile) Step(dt float64, targets []Target) ([]Event, error) {
 	return events, nil
 }
 
-func validVec(v math2d.Vec2) bool { return numeric.Finite(v.X) && numeric.Finite(v.Y) }
+func validVec(v physics2d.Vec2) bool { return numeric.Finite(v.X) && numeric.Finite(v.Y) }

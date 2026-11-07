@@ -6,35 +6,30 @@ Embed it in your game or engine; the host application owns the game loop,
 rendering, input, and conversion between world units and screen coordinates.
 
 The module path is `github.com/kyrqon/GoSimPhysics`. Requires Go 1.27 or later,
-with no third-party dependencies. Import the packages you need:
+with no third-party dependencies. Choose a physics core for your dimension;
+projectile penetration is an optional extension:
 
 | Package | Import path | Responsibility |
 | --- | --- | --- |
-| [`math2d`](math2d) | `github.com/kyrqon/GoSimPhysics/math2d` | 2D vectors |
-| [`math3d`](math3d) | `github.com/kyrqon/GoSimPhysics/math3d` | 3D vectors and quaternions |
-| [`collision2d`](collision2d) | `github.com/kyrqon/GoSimPhysics/collision2d` | Circle/rectangle geometry, contact and sweep queries |
-| [`collision3d`](collision3d) | `github.com/kyrqon/GoSimPhysics/collision3d` | Sphere/box geometry, contact and sweep queries |
-| [`dynamics2d`](dynamics2d) | `github.com/kyrqon/GoSimPhysics/dynamics2d` | 2D bodies, worlds, constraints, and collision response |
-| [`dynamics3d`](dynamics3d) | `github.com/kyrqon/GoSimPhysics/dynamics3d` | 3D bodies, worlds, constraints, and collision response |
+| [`physics2d`](physics2d) | `github.com/kyrqon/GoSimPhysics/physics2d` | 2D vectors, shapes, queries, bodies, worlds, constraints, and CCD |
+| [`physics3d`](physics3d) | `github.com/kyrqon/GoSimPhysics/physics3d` | 3D vectors, rotations, shapes, queries, bodies, worlds, constraints, and CCD |
 | [`ballistics`](ballistics) | `github.com/kyrqon/GoSimPhysics/ballistics` | Shared material, energy, damage, and event rules |
 | [`ballistics2d`](ballistics2d) | `github.com/kyrqon/GoSimPhysics/ballistics2d` | Point projectiles and penetration through 2D target snapshots |
 | [`ballistics3d`](ballistics3d) | `github.com/kyrqon/GoSimPhysics/ballistics3d` | Point projectiles and penetration through 3D target snapshots |
 
-The package reorganization intentionally changes imports. Earlier entry points
-have been removed; no compatibility facades are provided.
+The package reorganization intentionally changes imports. The earlier separate
+math, collision, and dynamics packages have been removed; there are no
+compatibility facades or re-exported core types.
 
 ## Package structure
 
 ```text
-math2d/       Vec2
-math3d/       Vec3, Quaternion
-collision2d/  Shape, Collider, Motion, Contact, TimeOfImpact, RayInterval
-collision3d/  Shape, Collider, Motion, Contact, TimeOfImpact, RayInterval
-dynamics2d/   Body, World, DistanceJoint, CCD response
-dynamics3d/   Body, World, DistanceJoint, CCD response
+physics2d/    Vec2, shapes, queries, Body, World, DistanceJoint, CCD
+physics3d/    Vec3, Quaternion, shapes, queries, Body, World, DistanceJoint, CCD
 ballistics/   Material, energy and damage rules, event kinds
 ballistics2d/ 2D Projectile, Target, State, and penetration events
 ballistics3d/ 3D Projectile, Target, State, and penetration events
+internal/     Numerical helpers and shared penetration integration
 examples/     Console examples and the offline browser playground
 ```
 
@@ -42,19 +37,20 @@ Each dimension has the same dependency direction. Arrows below point from a
 dependency to the package that uses it; imports run in the opposite direction:
 
 ```text
-math2d → collision2d → dynamics2d
-                   ↘ ballistics2d ← ballistics
-math3d → collision3d → dynamics3d
-                   ↘ ballistics3d ← ballistics
+physics2d → ballistics2d ← ballistics
+physics3d → ballistics3d ← ballistics
 ```
 
-Collision queries operate on geometry and motion without creating a world or
-importing dynamics. Dynamics owns integration, forces, joints, and impulse
-response. For convenience, the dynamics packages also expose aliases for their
-dimension's vector, shape, and contact types, plus quaternions in 3D, so a
-simulation can usually use a single import.
-The ballistics packages form a separate branch over collision and math, plus
-the shared `ballistics` rules. They do not import or advance a dynamics world.
+Each physics core defines its dimension's vector, shape, collider, and body
+types directly. A rigid-body application needs only one core import. The same
+package provides pure geometry and motion queries that work without creating a
+`World`. Vector math, collision detection, integration, and solvers are organized
+as files within that core.
+
+The ballistics extensions use the core geometry and shared `ballistics` rules;
+the cores do not depend on them. Extensions advance their own projectiles and
+return events, while the host game owns health. Numerical segment integration
+and material-occupancy bookkeeping are internal implementation details.
 
 ## Interactive browser demo
 
@@ -118,7 +114,7 @@ in [`THIRD_PARTY_LICENSES.txt`](examples/browser/THIRD_PARTY_LICENSES.txt).
 - Per-entry damage attenuation, overlapping material resistance, and persistent
   material tracking across frame boundaries.
 
-The `dynamics3d` package provides the same body, force, material, and joint concepts using
+The `physics3d` package provides the same body, force, material, and joint concepts using
 `Vec3` and `Quaternion`. It uses the full world-space inertia tensor, including
 torque-free precession of anisotropic bodies. Box collision tests all 15 SAT
 axes; face clipping produces up to four contacts, while edge/edge contacts use
@@ -143,15 +139,15 @@ import (
     "fmt"
     "log"
 
-    "github.com/kyrqon/GoSimPhysics/dynamics2d"
+    "github.com/kyrqon/GoSimPhysics/physics2d"
 )
 
 func main() {
-    world := dynamics2d.NewWorld(dynamics2d.Vec2{Y: -9.81})
-    ball, err := world.CreateBody(dynamics2d.BodyDef{
-        Type:     dynamics2d.Dynamic,
-        Shape:    dynamics2d.Circle{Radius: 0.5},
-        Position: dynamics2d.Vec2{Y: 5},
+    world := physics2d.NewWorld(physics2d.Vec2{Y: -9.81})
+    ball, err := world.CreateBody(physics2d.BodyDef{
+        Type:     physics2d.Dynamic,
+        Shape:    physics2d.Circle{Radius: 0.5},
+        Position: physics2d.Vec2{Y: 5},
         Mass:     1,
     })
     if err != nil {
@@ -195,12 +191,12 @@ when they need swept collision detection.
 ## Embedding the 3D library
 
 ```go
-world := dynamics3d.NewWorld(dynamics3d.Vec3{Y: -9.81})
-body, err := world.CreateBody(dynamics3d.BodyDef{
-    Type:     dynamics3d.Dynamic,
-    Shape:    dynamics3d.Box{HalfExtents: dynamics3d.Vec3{X: 0.5, Y: 0.5, Z: 0.5}},
-    Position: dynamics3d.Vec3{Y: 4},
-    Rotation: dynamics3d.QuaternionFromAxisAngle(dynamics3d.Vec3{Y: 1}, 0.4),
+world := physics3d.NewWorld(physics3d.Vec3{Y: -9.81})
+body, err := world.CreateBody(physics3d.BodyDef{
+    Type:     physics3d.Dynamic,
+    Shape:    physics3d.Box{HalfExtents: physics3d.Vec3{X: 0.5, Y: 0.5, Z: 0.5}},
+    Position: physics3d.Vec3{Y: 4},
+    Rotation: physics3d.QuaternionFromAxisAngle(physics3d.Vec3{Y: 1}, 0.4),
     Mass:     1,
     Friction: 0.6,
 })
@@ -214,7 +210,7 @@ if err := world.Step(1.0 / 60); err != nil {
 _ = body
 ```
 
-Import `github.com/kyrqon/GoSimPhysics/dynamics3d` in the surrounding Go program.
+Import `github.com/kyrqon/GoSimPhysics/physics3d` in the surrounding Go program.
 3D uses a right-handed coordinate system and world-space angular velocities,
 torques, forces, and application points. Quaternions have `X, Y, Z, W` fields;
 the zero rotation in a body definition defaults to identity. Other nonzero
@@ -224,7 +220,7 @@ rotations are normalized. `Inertia` returns local principal moments, and
 
 ## Collision queries without a world
 
-Use `collision2d` or `collision3d` when you only need geometry queries. A
+The `physics2d` and `physics3d` cores also support geometry queries directly. A
 `Collider` contains a shape, position, and orientation (`Angle` in 2D or
 `Rotation` in 3D). A `Motion` embeds a collider and adds linear and angular
 velocities. These types have no body mass, forces, or world membership.
@@ -236,24 +232,23 @@ import (
     "fmt"
     "log"
 
-    "github.com/kyrqon/GoSimPhysics/collision2d"
-    "github.com/kyrqon/GoSimPhysics/math2d"
+    "github.com/kyrqon/GoSimPhysics/physics2d"
 )
 
 func main() {
-    ball := collision2d.Motion{
-        Collider: collision2d.Collider{
-            Shape:    collision2d.Circle{Radius: 0.05},
-            Position: math2d.Vec2{X: -2},
+    ball := physics2d.Motion{
+        Collider: physics2d.Collider{
+            Shape:    physics2d.Circle{Radius: 0.05},
+            Position: physics2d.Vec2{X: -2},
         },
-        Velocity: math2d.Vec2{X: 400},
+        Velocity: physics2d.Vec2{X: 400},
     }
-    wall := collision2d.Motion{
-        Collider: collision2d.Collider{
-            Shape: collision2d.Box{HalfExtents: math2d.Vec2{X: 0.01, Y: 1}},
+    wall := physics2d.Motion{
+        Collider: physics2d.Collider{
+            Shape: physics2d.Box{HalfExtents: physics2d.Vec2{X: 0.01, Y: 1}},
         },
     }
-    impact, hit, err := collision2d.TimeOfImpact(ball, wall, 1.0/60.0)
+    impact, hit, err := physics2d.TimeOfImpact(ball, wall, 1.0/60.0)
     if err != nil {
         log.Fatal(err)
     }
@@ -268,9 +263,11 @@ current poses. Use `CollideChecked(a, b)` to also receive an error for invalid o
 unrepresentable geometry, rather than treating it as a miss. `TimeOfImpact`
 accepts two motions and a positive duration in seconds. It keeps velocities
 constant, reports initial contact at time zero, and leaves the inputs unchanged.
-The dynamics packages provide body-based `Collide` and `TimeOfImpact` convenience
-functions. Body-based sweeps also apply static-body and fixed-rotation rules;
-contact queries inspect the current geometry regardless of body type.
+For existing bodies, use `a.Collide(b)` or `a.TimeOfImpact(b, dt)`. Body-based
+sweeps also apply static-body and fixed-rotation rules; contact queries inspect
+the current geometry regardless of body type. `body.Collider()` returns its
+geometry snapshot, and `body.Motion()` returns a validated motion snapshot with
+those body rules applied.
 
 `RayInterval(collider, origin, direction)` returns a solid's complete forward
 entry and exit interval, including points and outward normals. Direction need
@@ -287,7 +284,7 @@ touches only a boundary. Geometry and motion query inputs are not mutated.
 Use `ballistics2d` or `ballistics3d` for shots that can pass through a target.
 These packages own straight point-projectile state and return events; the game
 owns health and decides how to apply those events. They do not change the
-ordinary solid-contact behavior of a dynamics world's CCD.
+ordinary solid-contact behavior of a physics world's CCD.
 
 The model uses kinetic energy `E = mass * speed² / 2`. A material removes
 `Resistance * pathLength` energy while the point travels inside it; there is no
@@ -314,14 +311,13 @@ import (
 
     "github.com/kyrqon/GoSimPhysics/ballistics"
     "github.com/kyrqon/GoSimPhysics/ballistics3d"
-    "github.com/kyrqon/GoSimPhysics/collision3d"
-    "github.com/kyrqon/GoSimPhysics/math3d"
+    "github.com/kyrqon/GoSimPhysics/physics3d"
 )
 
 func main() {
     shot, err := ballistics3d.NewProjectile(ballistics3d.ProjectileDef{
-        Position: math3d.Vec3{X: -3},
-        Velocity: math3d.Vec3{X: 40},
+        Position: physics3d.Vec3{X: -3},
+        Velocity: physics3d.Vec3{X: 40},
         Mass:     1,
         Damage:   100,
     })
@@ -331,20 +327,20 @@ func main() {
     targets := []ballistics3d.Target{
         {
             ID: "barrier",
-            Collider: collision3d.Collider{
-                Shape: collision3d.Box{
-                    HalfExtents: math3d.Vec3{X: 0.15, Y: 1, Z: 1},
+            Collider: physics3d.Collider{
+                Shape: physics3d.Box{
+                    HalfExtents: physics3d.Vec3{X: 0.15, Y: 1, Z: 1},
                 },
             },
             Material: ballistics.Material{Name: "Game barrier", Resistance: 1000},
         },
         {
             ID: "target",
-            Collider: collision3d.Collider{
-                Shape: collision3d.Box{
-                    HalfExtents: math3d.Vec3{X: 0.2, Y: 0.5, Z: 0.5},
+            Collider: physics3d.Collider{
+                Shape: physics3d.Box{
+                    HalfExtents: physics3d.Vec3{X: 0.2, Y: 0.5, Z: 0.5},
                 },
-                Position: math3d.Vec3{X: 3},
+                Position: physics3d.Vec3{X: 3},
             },
             Material: ballistics.Material{Name: "Game target", Resistance: 10000},
         },
@@ -367,7 +363,7 @@ func main() {
 }
 ```
 
-Use `ballistics2d`, `collision2d`, and `math2d.Vec2` for the equivalent 2D shot.
+Use `ballistics2d` and `physics2d` for the equivalent 2D shot.
 `Target.ID` must be nonempty and unique within each step. Target colliders and
 materials are validated and copied before tracing. They form a frozen snapshot
 for that call; callers can supply a new scene snapshot on a following step,
@@ -403,10 +399,11 @@ errors. A failed step returns no partial events and restores the entire
 projectile, including its material-entry history, so damage can be applied only
 after a successful `Step`.
 
-To use rigid-body geometry as a target, copy its `Shape()`, `Position`, and
-`Angle` or `Rotation` into a collision `Collider` snapshot. Advance the shot
+To use rigid-body geometry as a target, assign `body.Collider()` to the target's
+`Collider` field. This snapshot uses the same core shape and vector types as
+the rest of the simulation. Advance the shot
 through the ballistics package. Do not also simulate that same point projectile
-as an ordinary dynamics body: the world's solid CCD response would stop or
+as an ordinary physics body: the world's solid CCD response would stop or
 bounce it before the penetration rules are applied.
 
 This is a configurable game model, not a material or ammunition calibration.
@@ -446,24 +443,24 @@ with `Length` to inspect constraint error. `RemoveBody` also removes its joints.
 
 ![CCD enabled versus discrete collision detection](examples/browser/preview-ccd.png)
 
-Set `Continuous: true` on a fast body's definition in either dynamics package.
+Set `Continuous: true` on a fast body's definition in either physics core.
 The flag can also be changed on an existing body between steps. A pair uses CCD when
 either body has it enabled and at least one body is dynamic; joint collision
 filtering still applies. Other pairs retain discrete collision detection.
 
 ```go
-bullet, err := world.CreateBody(dynamics2d.BodyDef{
-    Type:       dynamics2d.Dynamic,
-    Shape:      dynamics2d.Circle{Radius: 0.05},
-    Position:   dynamics2d.Vec2{X: -2},
-    Velocity:   dynamics2d.Vec2{X: 400},
+bullet, err := world.CreateBody(physics2d.BodyDef{
+    Type:       physics2d.Dynamic,
+    Shape:      physics2d.Circle{Radius: 0.05},
+    Position:   physics2d.Vec2{X: -2},
+    Velocity:   physics2d.Vec2{X: 400},
     Mass:       1,
     Continuous: true,
 })
 if err != nil {
     return err
 }
-// Use dynamics3d.BodyDef, Vec3, and Sphere for the equivalent 3D body.
+// Use physics3d.BodyDef, Vec3, and Sphere for the equivalent 3D body.
 _ = bullet
 ```
 
@@ -474,8 +471,8 @@ within one frame. Fixed-orientation primitive sweeps use analytic casts;
 rotating boxes use bounded conservative advancement with angular motion bounds.
 Rounded circle/sphere-to-box corners are tested against the actual shape.
 
-The body-based `dynamics2d.TimeOfImpact(a, b, dt)` and its 3D equivalent are pure
-queries returning `(TOIResult, hit, error)`.
+The body method `a.TimeOfImpact(b, dt)` in either dimension is a pure query
+returning `(TOIResult, hit, error)`.
 `TOIResult.Time` is in **seconds**, not a fraction, and `Contact` contains the
 predicted world-space normal and points. The query holds linear and angular
 velocities constant, ignores forces and the `Continuous` flags, honors static
@@ -580,10 +577,10 @@ Tests include original analytical impact fixtures, free-fall convergence,
 anisotropic angular-momentum conservation, resting bodies, stacking, spherical
 pendulums, friction direction invariance, and invalid-step rollback. Fixture
 derivations are documented in
-[`dynamics2d/testdata/README.md`](dynamics2d/testdata/README.md) and
-[`dynamics3d/testdata/README.md`](dynamics3d/testdata/README.md).
+[`physics2d/testdata/README.md`](physics2d/testdata/README.md) and
+[`physics3d/testdata/README.md`](physics3d/testdata/README.md).
 CCD fixture derivations and thin-wall/ricochet cases are documented in
-[`dynamics2d/testdata/CCD.md`](dynamics2d/testdata/CCD.md).
+[`physics2d/testdata/CCD.md`](physics2d/testdata/CCD.md).
 Penetration tests use original results derived from `E = mass * speed² / 2`,
 `work = resistance * pathLength`, and constant-deceleration travel. They cover
 thin and thick targets, exact stopping thresholds, angled thickness, overlapping

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/kyrqon/GoSimPhysics/dynamics2d"
+	"github.com/kyrqon/GoSimPhysics/physics2d"
 )
 
 func main() {
@@ -15,23 +15,23 @@ func main() {
 }
 
 func run() error {
-	world := dynamics2d.NewWorld(dynamics2d.Vec2{Y: -9.81})
-	anchor, err := world.CreateBody(dynamics2d.BodyDef{
-		Type: dynamics2d.Static, Shape: dynamics2d.Circle{Radius: 0.05},
+	world := physics2d.NewWorld(physics2d.Vec2{Y: -9.81})
+	anchor, err := world.CreateBody(physics2d.BodyDef{
+		Type: physics2d.Static, Shape: physics2d.Circle{Radius: 0.05},
 	})
 	if err != nil {
 		return fmt.Errorf("create anchor: %w", err)
 	}
-	ball, err := world.CreateBody(dynamics2d.BodyDef{
-		Type:     dynamics2d.Dynamic,
-		Shape:    dynamics2d.Circle{Radius: 0.1},
-		Position: dynamics2d.Vec2{X: 1.2, Y: -1.6},
+	ball, err := world.CreateBody(physics2d.BodyDef{
+		Type:     physics2d.Dynamic,
+		Shape:    physics2d.Circle{Radius: 0.1},
+		Position: physics2d.Vec2{X: 1.2, Y: -1.6},
 		Mass:     1,
 	})
 	if err != nil {
 		return fmt.Errorf("create ball: %w", err)
 	}
-	joint, err := world.CreateDistanceJoint(dynamics2d.DistanceJointDef{
+	joint, err := world.CreateDistanceJoint(physics2d.DistanceJointDef{
 		BodyA: anchor, BodyB: ball,
 		Length: 2, // Zero local offsets attach the joint at the body centers.
 	})
@@ -57,7 +57,7 @@ func run() error {
 	return nil
 }
 
-func printState(seconds float64, joint *dynamics2d.DistanceJoint, ball *dynamics2d.Body) {
+func printState(seconds float64, joint *physics2d.DistanceJoint, ball *physics2d.Body) {
 	a, b := joint.Anchors()
 	length := b.Sub(a).Length()
 	fmt.Printf("t=%.1f s  ball=(%.3f, %.3f) m  length=%.6f m  target=%.6f m\n",

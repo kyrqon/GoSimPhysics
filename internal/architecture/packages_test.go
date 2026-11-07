@@ -13,20 +13,17 @@ import (
 
 const modulePath = "github.com/kyrqon/GoSimPhysics"
 
-// Dependencies must point from dynamics to collision to math. Go catches cycles,
-// while this test also rejects acyclic shortcuts that break those boundaries.
+// Each physics core owns its dimension's math, geometry, and dynamics. Ballistics
+// depends on those cores; the cores must not depend on optional projectile rules.
+// Go catches cycles, while this test also rejects shortcuts across dimensions.
 func TestPublicPackageLayers(t *testing.T) {
 	root := filepath.Join("..", "..")
 	layers := map[string][]string{
-		"math2d":               {"internal/numeric"},
-		"math3d":               {"internal/numeric"},
-		"collision2d":          {"math2d", "internal/numeric"},
-		"collision3d":          {"math3d", "internal/numeric"},
-		"dynamics2d":           {"math2d", "collision2d", "internal/numeric"},
-		"dynamics3d":           {"math3d", "collision3d", "internal/numeric"},
+		"physics2d":            {"internal/numeric"},
+		"physics3d":            {"internal/numeric"},
 		"ballistics":           {"internal/numeric"},
-		"ballistics2d":         {"ballistics", "math2d", "collision2d", "internal/numeric", "internal/penetration"},
-		"ballistics3d":         {"ballistics", "math3d", "collision3d", "internal/numeric", "internal/penetration"},
+		"ballistics2d":         {"ballistics", "physics2d", "internal/numeric", "internal/penetration"},
+		"ballistics3d":         {"ballistics", "physics3d", "internal/numeric", "internal/penetration"},
 		"internal/penetration": {"ballistics", "internal/numeric"},
 	}
 	for name, allowed := range layers {
@@ -72,7 +69,11 @@ func TestExamplesAndTestsUseCanonicalImports(t *testing.T) {
 			return nil
 		}
 		for _, imported := range imports(t, path) {
-			if imported == modulePath || imported == modulePath+"/physics3d" {
+			switch imported {
+			case modulePath,
+				modulePath + "/math2d", modulePath + "/math3d",
+				modulePath + "/collision2d", modulePath + "/collision3d",
+				modulePath + "/dynamics2d", modulePath + "/dynamics3d":
 				t.Errorf("%s still imports removed package %s", path, imported)
 			}
 		}

@@ -1,70 +1,73 @@
-// Package ballistics3d advances point projectiles through frozen 3D colliders.
-// Material resistance consumes energy per unit path length. The package reports
-// gameplay events; it does not own health, destroy targets, or apply rigid-body
-// impulses. This initial model has straight paths, no projectile radius, gravity,
-// ricochet, or continuously moving target geometry.
+// Package ballistics3d advances straight point projectiles through frozen 3D
+// colliders from physics3d. Material resistance consumes energy per unit path
+// length. The package returns gameplay events; the host game owns target health.
+// This model has no projectile radius, gravity, ricochet, rigid-body impulses,
+// or continuously moving target geometry.
 package ballistics3d
 
 import (
 	"fmt"
 
 	"github.com/kyrqon/GoSimPhysics/ballistics"
-	"github.com/kyrqon/GoSimPhysics/collision3d"
 	"github.com/kyrqon/GoSimPhysics/internal/numeric"
 	"github.com/kyrqon/GoSimPhysics/internal/penetration"
-	"github.com/kyrqon/GoSimPhysics/math3d"
+	"github.com/kyrqon/GoSimPhysics/physics3d"
 )
 
-// Target places a material in a closed sphere or oriented box. IDs must be
-// nonempty and unique within a Step. Colliders are frozen during each call;
-// callers may provide a new snapshot of their scene on the following step.
+// Target associates a frozen collider snapshot with a game-tuned material.
+// IDs must be nonempty and unique within each Step. Geometry is copied before
+// tracing; reusing an ID preserves material-entry tracking across steps.
 type Target struct {
 	ID       string
-	Collider collision3d.Collider
+	Collider physics3d.Collider
 	Material ballistics.Material
 }
 
-// ProjectileDef describes a launch. Mass, launch speed, and its derived energy
-// must be positive and finite. Damage is the nonnegative damage at launch energy.
-// MaxEvents zero selects ballistics.DefaultMaxEvents.
+// ProjectileDef configures a point-projectile launch. Mass, launch speed, and
+// derived energy must be positive and finite; Damage must be nonnegative and
+// finite. MaxEvents zero selects ballistics.DefaultMaxEvents. Use consistent
+// units, for example meters, kilograms, seconds, and J/m for material resistance.
 type ProjectileDef struct {
-	Position, Velocity math3d.Vec3
+	Position, Velocity physics3d.Vec3
 	Mass, Damage       float64
 	MaxEvents          int
 }
 
-// State is a value snapshot of a projectile. Damage is its current potential hit
-// damage, scaled by remaining energy. Time is its simulated age in seconds, and
-// Distance is cumulative travel, both measured from launch.
+// State is a value snapshot of a projectile. Damage is its potential hit damage
+// at the current energy, capped at launch damage. Time is simulated age in
+// seconds; Distance is cumulative travel from launch.
 type State struct {
-	Position, Velocity                                  math3d.Vec3
+	Position, Velocity                                  physics3d.Vec3
 	Mass, Energy, InitialEnergy, Damage, Time, Distance float64
 	Stopped                                             bool
 }
 
-// Event describes a material crossing or stop. Hit carries damage once on entry;
-// Exit and Stop carry zero damage. Position is the actual point on the current
-// path, Normal is the outward surface normal for Hit/Exit, and Stop has zero
-// normal. A launch inside a solid has a zero entry normal and StartedInside true.
-// EnergySpent is work done by the event's target, including across prior steps;
-// ActiveTargets identifies every material containing a stopped projectile.
+// Event reports a material crossing or stopping point. Time and Distance are
+// measured from launch. Only ballistics.Hit carries damage, once per entry;
+// ballistics.Exit and ballistics.Stop carry zero damage. Normal is the outward
+// surface normal for entry or exit; a launch inside a solid, a stop, and an exit
+// caused by removing a target between steps have zero normals. StartedInside
+// identifies an entry that begins inside a solid. EnergySpent is work done by
+// this target, including earlier steps. ActiveTargets identifies every material
+// containing a stopped projectile.
 type Event struct {
 	Kind                                                     ballistics.EventKind
 	TargetID                                                 string
 	Material                                                 ballistics.Material
 	Time, Distance, Energy, EntryEnergy, EnergySpent, Damage float64
-	Position, Normal                                         math3d.Vec3
+	Position, Normal                                         physics3d.Vec3
 	StartedInside                                            bool
 	ActiveTargets                                            []string
 }
 
-// Projectile stores a straight point trajectory and material occupancy across
-// steps. Access it from one goroutine at a time. MaxEvents may be adjusted between
-// calls; exhausting it returns ballistics.ErrEventLimit and rolls back the call.
+// Projectile owns a straight flight path and persistent material-entry state.
+// It must not be copied or accessed concurrently with Step. Inspect it through
+// State; editing the returned snapshot does not change the projectile.
 type Projectile struct {
+	// MaxEvents bounds hit, exit, and stop events in each Step. It must be positive.
 	MaxEvents int
 
-	origin, position, velocity, direction math3d.Vec3
+	origin, position, velocity, direction physics3d.Vec3
 	core                                  penetration.State
 	damage                                float64
 }
@@ -130,22 +133,22 @@ func (p *Projectile) Step(dt float64, targets []Target) ([]Event, error) {
 		if err := target.Material.Validate(); err != nil {
 			return nil, err
 		}
-		shape, ok := collision3d.CloneShape(target.Collider.Shape)
+		shape, ok := physics3d.CloneShape(target.Collider.Shape)
 		if !ok {
 			return nil, fmt.Errorf("ballistics3d: invalid target shape %q", target.ID)
 		}
 		target.Collider.Shape = shape
-		if _, _, err := collision3d.Bounds(target.Collider); err != nil {
+		if _, _, err := physics3d.Bounds(target.Collider); err != nil {
 			return nil, fmt.Errorf("ballistics3d: target %q: %w", target.ID, err)
 		}
 		canonical[i] = target
 	}
 
 	var intervals []penetration.Interval
-	normals := make(map[string]collision3d.RayHit, len(targets))
+	normals := make(map[string]physics3d.RayHit, len(targets))
 	if !p.core.Stopped {
 		for _, target := range canonical {
-			hit, ok, err := collision3d.RayInterval(target.Collider, p.origin, p.direction)
+			hit, ok, err := physics3d.RayInterval(target.Collider, p.origin, p.direction)
 			if err != nil {
 				return nil, fmt.Errorf("ballistics3d: target %q: %w", target.ID, err)
 			}
@@ -170,7 +173,7 @@ func (p *Projectile) Step(dt float64, targets []Target) ([]Event, error) {
 	}
 	velocity := p.direction.Mul(speed)
 	if after.Stopped {
-		velocity = math3d.Vec3{}
+		velocity = physics3d.Vec3{}
 	}
 	damage, err := ballistics.Damage(after.BaseDamage, after.Energy, after.InitialEnergy)
 	if err != nil {
@@ -185,7 +188,7 @@ func (p *Projectile) Step(dt float64, targets []Target) ([]Event, error) {
 		if !validVec(point) {
 			return nil, fmt.Errorf("ballistics3d: unrepresentable event position")
 		}
-		normal := math3d.Vec3{}
+		normal := physics3d.Vec3{}
 		hit := normals[raw.TargetID]
 		switch raw.Kind {
 		case ballistics.Hit:
@@ -208,6 +211,6 @@ func (p *Projectile) Step(dt float64, targets []Target) ([]Event, error) {
 	return events, nil
 }
 
-func validVec(v math3d.Vec3) bool {
+func validVec(v physics3d.Vec3) bool {
 	return numeric.Finite(v.X) && numeric.Finite(v.Y) && numeric.Finite(v.Z)
 }
