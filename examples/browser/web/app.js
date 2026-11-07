@@ -25,7 +25,12 @@
   const controls = {};
   let width = 1;
   let height = 1;
-  const dt = 1 / 60;
+  // Physics uses a fixed tick rate, independent of the rendering frame rate.
+  const tickHz = 60;
+  const dt = 1 / tickHz;
+  document.querySelector(".step-note").textContent = `Fixed step · ${tickHz} Hz`;
+  const ccdCaption = document.querySelector("#ccd-note p");
+  ccdCaption.textContent = ccdCaption.textContent.replace(/one 1\/\d+ s step/, `one 1/${tickHz} s step`);
   const isCCD = () => snapshot?.scene === "ccd" || snapshot?.scene === "ccd2d";
   const camera = { azimuth: 0.65, elevation: 0.4, distance: 19.2, target: { x: 0, y: 2.1, z: 0 } };
   let dragging = null;

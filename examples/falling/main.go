@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/kyrqon/GoSimPhysics"
+	"github.com/kyrqon/GoSimPhysics/dynamics2d"
 )
 
 func main() {
@@ -15,19 +15,19 @@ func main() {
 }
 
 func run() error {
-	world := physics.NewWorld(physics.Vec2{Y: -9.81})
-	if _, err := world.CreateBody(physics.BodyDef{
-		Type:     physics.Static,
-		Shape:    physics.Box{HalfExtents: physics.Vec2{X: 10, Y: 0.5}},
-		Position: physics.Vec2{Y: -0.5}, // The ground's top surface is y = 0.
+	world := dynamics2d.NewWorld(dynamics2d.Vec2{Y: -9.81})
+	if _, err := world.CreateBody(dynamics2d.BodyDef{
+		Type:     dynamics2d.Static,
+		Shape:    dynamics2d.Box{HalfExtents: dynamics2d.Vec2{X: 10, Y: 0.5}},
+		Position: dynamics2d.Vec2{Y: -0.5}, // The ground's top surface is y = 0.
 		Friction: 0.5,
 	}); err != nil {
 		return fmt.Errorf("create ground: %w", err)
 	}
-	ball, err := world.CreateBody(physics.BodyDef{
-		Type:        physics.Dynamic,
-		Shape:       physics.Circle{Radius: 0.5},
-		Position:    physics.Vec2{Y: 5},
+	ball, err := world.CreateBody(dynamics2d.BodyDef{
+		Type:        dynamics2d.Dynamic,
+		Shape:       dynamics2d.Circle{Radius: 0.5},
+		Position:    dynamics2d.Vec2{Y: 5},
 		Mass:        1,
 		Restitution: 0.35,
 		Friction:    0.5,

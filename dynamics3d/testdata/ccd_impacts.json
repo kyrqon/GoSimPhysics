@@ -1,0 +1,51 @@
+[
+  {
+    "name": "thin_wall_inelastic",
+    "geometry": "round_wall",
+    "radius_a": 0.05,
+    "position_a": -2,
+    "velocity_a": 400,
+    "mass_a": 1,
+    "wall_half_width": 0.01,
+    "restitution": 0,
+    "dt": 0.01,
+    "time_of_impact": 0.00485,
+    "expected_position_a": -0.06,
+    "expected_velocity_a": 0
+  },
+  {
+    "name": "thin_wall_elastic",
+    "geometry": "round_wall",
+    "radius_a": 0.05,
+    "position_a": -2,
+    "velocity_a": 400,
+    "mass_a": 1,
+    "wall_half_width": 0.01,
+    "restitution": 1,
+    "dt": 0.01,
+    "time_of_impact": 0.00485,
+    "expected_position_a": -2.12,
+    "expected_velocity_a": -400
+  },
+  {
+    "name": "moving_unequal_masses_elastic",
+    "geometry": "round_pair",
+    "radius_a": 0.1,
+    "radius_b": 0.1,
+    "position_a": -2,
+    "position_b": 2,
+    "velocity_a": 200,
+    "velocity_b": -100,
+    "mass_a": 1,
+    "mass_b": 3,
+    "restitution": 1,
+    "dt": 0.02,
+    "time_of_impact": 0.012666666666666666,
+    "expected_position_a": -1.3,
+    "expected_position_b": 1.1,
+    "expected_velocity_a": -250,
+    "expected_velocity_b": 50,
+    "expected_momentum": -100,
+    "expected_kinetic_energy": 35000
+  }
+]

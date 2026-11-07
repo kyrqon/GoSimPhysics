@@ -4,13 +4,46 @@ GoSimPhysics is a Go library for 2D and 3D rigid-body simulation in game engines
 Embed it in your game or engine; the host application owns the game loop,
 rendering, input, and conversion between world units and screen coordinates.
 
-The module path is `github.com/kyrqon/GoSimPhysics`; its root package is named
-`physics`. Requires Go 1.27 or later, with no third-party dependencies.
+The module path is `github.com/kyrqon/GoSimPhysics`. Requires Go 1.27 or later,
+with no third-party dependencies. Import the packages you need:
 
-| Simulation | Import path | Shapes and orientation |
+| Package | Import path | Responsibility |
 | --- | --- | --- |
-| 2D | `github.com/kyrqon/GoSimPhysics` | Circles, rotated rectangles, scalar angles |
-| 3D | `github.com/kyrqon/GoSimPhysics/physics3d` | Spheres, oriented boxes, quaternions |
+| [`math2d`](math2d) | `github.com/kyrqon/GoSimPhysics/math2d` | 2D vectors |
+| [`math3d`](math3d) | `github.com/kyrqon/GoSimPhysics/math3d` | 3D vectors and quaternions |
+| [`collision2d`](collision2d) | `github.com/kyrqon/GoSimPhysics/collision2d` | Circle/rectangle geometry, contact and sweep queries |
+| [`collision3d`](collision3d) | `github.com/kyrqon/GoSimPhysics/collision3d` | Sphere/box geometry, contact and sweep queries |
+| [`dynamics2d`](dynamics2d) | `github.com/kyrqon/GoSimPhysics/dynamics2d` | 2D bodies, worlds, constraints, and collision response |
+| [`dynamics3d`](dynamics3d) | `github.com/kyrqon/GoSimPhysics/dynamics3d` | 3D bodies, worlds, constraints, and collision response |
+
+The package reorganization intentionally changes imports. Earlier entry points
+have been removed; no compatibility facades are provided.
+
+## Package structure
+
+```text
+math2d/       Vec2
+math3d/       Vec3, Quaternion
+collision2d/  Shape, Collider, Motion, Contact, TimeOfImpact
+collision3d/  Shape, Collider, Motion, Contact, TimeOfImpact
+dynamics2d/   Body, World, DistanceJoint, CCD response
+dynamics3d/   Body, World, DistanceJoint, CCD response
+examples/     Console examples and the offline browser playground
+```
+
+Each dimension has the same dependency direction. Arrows below point from a
+dependency to the package that uses it; imports run in the opposite direction:
+
+```text
+math2d → collision2d → dynamics2d
+math3d → collision3d → dynamics3d
+```
+
+Collision queries operate on geometry and motion without creating a world or
+importing dynamics. Dynamics owns integration, forces, joints, and impulse
+response. For convenience, the dynamics packages also expose aliases for their
+dimension's vector, shape, and contact types, plus quaternions in 3D, so a
+simulation can usually use a single import.
 
 ## Interactive browser demo
 
@@ -65,7 +98,7 @@ in [`THIRD_PARTY_LICENSES.txt`](examples/browser/THIRD_PARTY_LICENSES.txt).
 - Direct contact queries through `Collide`.
 - Opt-in continuous collision detection and pure `TimeOfImpact` sweep queries.
 
-The 3D package provides the same body, force, material, and joint concepts using
+The `dynamics3d` package provides the same body, force, material, and joint concepts using
 `Vec3` and `Quaternion`. It uses the full world-space inertia tensor, including
 torque-free precession of anisotropic bodies. Box collision tests all 15 SAT
 axes; face clipping produces up to four contacts, while edge/edge contacts use
@@ -90,15 +123,15 @@ import (
     "fmt"
     "log"
 
-    "github.com/kyrqon/GoSimPhysics"
+    "github.com/kyrqon/GoSimPhysics/dynamics2d"
 )
 
 func main() {
-    world := physics.NewWorld(physics.Vec2{Y: -9.81})
-    ball, err := world.CreateBody(physics.BodyDef{
-        Type:     physics.Dynamic,
-        Shape:    physics.Circle{Radius: 0.5},
-        Position: physics.Vec2{Y: 5},
+    world := dynamics2d.NewWorld(dynamics2d.Vec2{Y: -9.81})
+    ball, err := world.CreateBody(dynamics2d.BodyDef{
+        Type:     dynamics2d.Dynamic,
+        Shape:    dynamics2d.Circle{Radius: 0.5},
+        Position: dynamics2d.Vec2{Y: 5},
         Mass:     1,
     })
     if err != nil {
@@ -116,22 +149,38 @@ func main() {
 }
 ```
 
-Advance the simulation with a fixed positive time step, such as `1.0 / 60.0`,
-independent of rendering frequency. In a real-time host, accumulate elapsed
-time, call `Step(dt)` while at least `dt` remains, and retain the remainder for
-the next frame. Bound catch-up work so a stalled renderer cannot create an
-unbounded simulation backlog. Smaller substeps help contact stability; enable
-`Continuous` on fast bodies when they need swept collision detection.
+## Physics tick rate and rendering
+
+The library has no internal timer or tick-rate setting. The host chooses how
+much simulated time passes by calling `world.Step(dt)`, where `dt` is in seconds.
+Use a fixed positive step: `dt = 1.0 / 60.0` gives 60 physics ticks per simulated
+second. Start at 60 Hz; 120 Hz can improve accuracy at a higher CPU cost.
+
+Physics ticks are independent of rendering FPS. In a real-time host, accumulate
+elapsed time, call `Step(dt)` while at least `dt` remains, and retain the remainder
+for the next render frame. Bound catch-up work so a stalled renderer cannot
+create an unbounded simulation backlog.
+
+The browser example sets `const tickHz = 60` and derives `dt = 1 / tickHz` in
+[`examples/browser/web/app.js`](examples/browser/web/app.js). Its speed control
+scales elapsed time accumulated by the host; it keeps the physics `dt` fixed.
+Regenerate the standalone HTML after editing the source to change its tick rate.
+
+`World.Substeps` subdivides each `Step`; it does not set the host's tick rate.
+With 60 Hz ticks and the default four substeps, the solver performs 240 numerical
+updates per simulated second. CCD can split those substeps further at impacts.
+More substeps can improve contact stability; enable `Continuous` on fast bodies
+when they need swept collision detection.
 
 ## Embedding the 3D library
 
 ```go
-world := physics3d.NewWorld(physics3d.Vec3{Y: -9.81})
-body, err := world.CreateBody(physics3d.BodyDef{
-    Type:     physics3d.Dynamic,
-    Shape:    physics3d.Box{HalfExtents: physics3d.Vec3{X: 0.5, Y: 0.5, Z: 0.5}},
-    Position: physics3d.Vec3{Y: 4},
-    Rotation: physics3d.QuaternionFromAxisAngle(physics3d.Vec3{Y: 1}, 0.4),
+world := dynamics3d.NewWorld(dynamics3d.Vec3{Y: -9.81})
+body, err := world.CreateBody(dynamics3d.BodyDef{
+    Type:     dynamics3d.Dynamic,
+    Shape:    dynamics3d.Box{HalfExtents: dynamics3d.Vec3{X: 0.5, Y: 0.5, Z: 0.5}},
+    Position: dynamics3d.Vec3{Y: 4},
+    Rotation: dynamics3d.QuaternionFromAxisAngle(dynamics3d.Vec3{Y: 1}, 0.4),
     Mass:     1,
     Friction: 0.6,
 })
@@ -145,13 +194,63 @@ if err := world.Step(1.0 / 60); err != nil {
 _ = body
 ```
 
-Import `github.com/kyrqon/GoSimPhysics/physics3d` in the surrounding Go program.
+Import `github.com/kyrqon/GoSimPhysics/dynamics3d` in the surrounding Go program.
 3D uses a right-handed coordinate system and world-space angular velocities,
 torques, forces, and application points. Quaternions have `X, Y, Z, W` fields;
 the zero rotation in a body definition defaults to identity. Other nonzero
 rotations are normalized. `Inertia` returns local principal moments, and
 `AngularMomentum` returns world-space angular momentum. 3D distance joints use
 `Vec3` local anchors and otherwise match the 2D API.
+
+## Collision queries without a world
+
+Use `collision2d` or `collision3d` when you only need geometry queries. A
+`Collider` contains a shape, position, and orientation (`Angle` in 2D or
+`Rotation` in 3D). A `Motion` embeds a collider and adds linear and angular
+velocities. These types have no body mass, forces, or world membership.
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+
+    "github.com/kyrqon/GoSimPhysics/collision2d"
+    "github.com/kyrqon/GoSimPhysics/math2d"
+)
+
+func main() {
+    ball := collision2d.Motion{
+        Collider: collision2d.Collider{
+            Shape:    collision2d.Circle{Radius: 0.05},
+            Position: math2d.Vec2{X: -2},
+        },
+        Velocity: math2d.Vec2{X: 400},
+    }
+    wall := collision2d.Motion{
+        Collider: collision2d.Collider{
+            Shape: collision2d.Box{HalfExtents: math2d.Vec2{X: 0.01, Y: 1}},
+        },
+    }
+    impact, hit, err := collision2d.TimeOfImpact(ball, wall, 1.0/60.0)
+    if err != nil {
+        log.Fatal(err)
+    }
+    if hit {
+        fmt.Printf("first contact after %.6f seconds\n", impact.Time)
+    }
+}
+```
+
+`Collide(a, b)` accepts two colliders and returns `(Contact, hit)` for their
+current poses. Use `CollideChecked(a, b)` to also receive an error for invalid or
+unrepresentable geometry, rather than treating it as a miss. `TimeOfImpact`
+accepts two motions and a positive duration in seconds. It keeps velocities
+constant, reports initial contact at time zero, and leaves the inputs unchanged.
+The dynamics packages provide body-based `Collide` and `TimeOfImpact` convenience
+functions. Body-based sweeps also apply static-body and fixed-rotation rules;
+contact queries inspect the current geometry regardless of body type.
 
 ## Body and joint behavior
 
@@ -184,24 +283,24 @@ with `Length` to inspect constraint error. `RemoveBody` also removes its joints.
 
 ![CCD enabled versus discrete collision detection](examples/browser/preview-ccd.png)
 
-Set `Continuous: true` on a fast body's definition in either package. The flag
-can also be changed on an existing body between steps. A pair uses CCD when
+Set `Continuous: true` on a fast body's definition in either dynamics package.
+The flag can also be changed on an existing body between steps. A pair uses CCD when
 either body has it enabled and at least one body is dynamic; joint collision
 filtering still applies. Other pairs retain discrete collision detection.
 
 ```go
-bullet, err := world.CreateBody(physics.BodyDef{
-    Type:       physics.Dynamic,
-    Shape:      physics.Circle{Radius: 0.05},
-    Position:   physics.Vec2{X: -2},
-    Velocity:   physics.Vec2{X: 400},
+bullet, err := world.CreateBody(dynamics2d.BodyDef{
+    Type:       dynamics2d.Dynamic,
+    Shape:      dynamics2d.Circle{Radius: 0.05},
+    Position:   dynamics2d.Vec2{X: -2},
+    Velocity:   dynamics2d.Vec2{X: 400},
     Mass:       1,
     Continuous: true,
 })
 if err != nil {
     return err
 }
-// Use physics3d.BodyDef, Vec3, and Sphere for the equivalent 3D body.
+// Use dynamics3d.BodyDef, Vec3, and Sphere for the equivalent 3D body.
 _ = bullet
 ```
 
@@ -212,7 +311,8 @@ within one frame. Fixed-orientation primitive sweeps use analytic casts;
 rotating boxes use bounded conservative advancement with angular motion bounds.
 Rounded circle/sphere-to-box corners are tested against the actual shape.
 
-`TimeOfImpact(a, b, dt)` is a pure query returning `(TOIResult, hit, error)`.
+The body-based `dynamics2d.TimeOfImpact(a, b, dt)` and its 3D equivalent are pure
+queries returning `(TOIResult, hit, error)`.
 `TOIResult.Time` is in **seconds**, not a fraction, and `Contact` contains the
 predicted world-space normal and points. The query holds linear and angular
 velocities constant, ignores forces and the `Continuous` flags, honors static
@@ -311,9 +411,10 @@ integration and constraint-solving techniques used:
 Tests include original analytical impact fixtures, free-fall convergence,
 anisotropic angular-momentum conservation, resting bodies, stacking, spherical
 pendulums, friction direction invariance, and invalid-step rollback. Fixture
-derivations are documented in `testdata/README.md` and
-`physics3d/testdata/README.md`.
+derivations are documented in
+[`dynamics2d/testdata/README.md`](dynamics2d/testdata/README.md) and
+[`dynamics3d/testdata/README.md`](dynamics3d/testdata/README.md).
 CCD fixture derivations and thin-wall/ricochet cases are documented in
-[`testdata/CCD.md`](testdata/CCD.md).
+[`dynamics2d/testdata/CCD.md`](dynamics2d/testdata/CCD.md).
 
 The project is licensed under GPL-3.0; see [LICENSE](LICENSE).

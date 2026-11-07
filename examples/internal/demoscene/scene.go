@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"math"
 
-	physics "github.com/kyrqon/GoSimPhysics"
-	"github.com/kyrqon/GoSimPhysics/physics3d"
+	"github.com/kyrqon/GoSimPhysics/dynamics2d"
+	"github.com/kyrqon/GoSimPhysics/dynamics3d"
 )
 
 // Vector and Rotation are renderer-facing data, independent of either engine API.
@@ -55,13 +55,13 @@ type Snapshot struct {
 
 // Session is not safe for concurrent use. The browser invokes it on its Go thread.
 type Session struct {
-	world3 *physics3d.World
-	world2 *physics.World
+	world3 *dynamics3d.World
+	world2 *dynamics2d.World
 	// The discrete comparison runs independently so CCD event times cannot give
 	// its otherwise discrete solver additional collision samples.
-	comparison3 *physics3d.World
-	comparison2 *physics.World
-	joints3     []*physics3d.DistanceJoint
+	comparison3 *dynamics3d.World
+	comparison2 *dynamics2d.World
+	joints3     []*dynamics3d.DistanceJoint
 	scene       string
 	time        float64
 	gravity     float64
@@ -75,10 +75,10 @@ func New(scene string) (*Session, error) {
 	s := &Session{scene: scene, gravity: 9.81}
 	if scene == "billiards2d" || scene == "ccd2d" {
 		s.gravity = 0
-		s.world2 = physics.NewWorld(physics.Vec2{})
+		s.world2 = dynamics2d.NewWorld(dynamics2d.Vec2{})
 		if scene == "ccd2d" {
 			s.world2.Substeps = 1
-			s.comparison2 = physics.NewWorld(physics.Vec2{})
+			s.comparison2 = dynamics2d.NewWorld(dynamics2d.Vec2{})
 			s.comparison2.Substeps = 1
 			return s, s.setupCCD2D()
 		}
@@ -89,13 +89,13 @@ func New(scene string) (*Session, error) {
 	}
 	if scene == "ccd" {
 		s.gravity = 0
-		s.world3 = physics3d.NewWorld(physics3d.Vec3{})
+		s.world3 = dynamics3d.NewWorld(dynamics3d.Vec3{})
 		s.world3.Substeps = 1
-		s.comparison3 = physics3d.NewWorld(physics3d.Vec3{})
+		s.comparison3 = dynamics3d.NewWorld(dynamics3d.Vec3{})
 		s.comparison3.Substeps = 1
 		return s, s.setupCCD3D()
 	}
-	s.world3 = physics3d.NewWorld(physics3d.Vec3{Y: -s.gravity})
+	s.world3 = dynamics3d.NewWorld(dynamics3d.Vec3{Y: -s.gravity})
 	s.world3.VelocityIterations, s.world3.PositionIterations = 16, 6
 	if err := s.setup3D(); err != nil {
 		return nil, err
@@ -112,15 +112,15 @@ func (s *Session) setupCCD3D() error {
 		if i == 1 {
 			world = s.comparison3
 		}
-		if _, err := world.CreateBody(physics3d.BodyDef{
-			Shape:    physics3d.Box{HalfExtents: physics3d.Vec3{X: 0.01, Y: 0.5, Z: 0.55}},
-			Position: physics3d.Vec3{Y: 0.6, Z: z},
+		if _, err := world.CreateBody(dynamics3d.BodyDef{
+			Shape:    dynamics3d.Box{HalfExtents: dynamics3d.Vec3{X: 0.01, Y: 0.5, Z: 0.55}},
+			Position: dynamics3d.Vec3{Y: 0.6, Z: z},
 		}); err != nil {
 			return err
 		}
-		if _, err := world.CreateBody(physics3d.BodyDef{
-			Type: physics3d.Dynamic, Shape: physics3d.Sphere{Radius: 0.05}, Mass: 1,
-			Position: physics3d.Vec3{X: -2, Y: 0.6, Z: z}, Velocity: physics3d.Vec3{X: 400},
+		if _, err := world.CreateBody(dynamics3d.BodyDef{
+			Type: dynamics3d.Dynamic, Shape: dynamics3d.Sphere{Radius: 0.05}, Mass: 1,
+			Position: dynamics3d.Vec3{X: -2, Y: 0.6, Z: z}, Velocity: dynamics3d.Vec3{X: 400},
 			Continuous: i == 0,
 		}); err != nil {
 			return err
@@ -135,14 +135,14 @@ func (s *Session) setupCCD2D() error {
 		if i == 1 {
 			world = s.comparison2
 		}
-		if _, err := world.CreateBody(physics.BodyDef{
-			Shape: physics.Box{HalfExtents: physics.Vec2{X: 0.01, Y: 0.5}}, Position: physics.Vec2{Y: y},
+		if _, err := world.CreateBody(dynamics2d.BodyDef{
+			Shape: dynamics2d.Box{HalfExtents: dynamics2d.Vec2{X: 0.01, Y: 0.5}}, Position: dynamics2d.Vec2{Y: y},
 		}); err != nil {
 			return err
 		}
-		if _, err := world.CreateBody(physics.BodyDef{
-			Type: physics.Dynamic, Shape: physics.Circle{Radius: 0.05}, Mass: 1,
-			Position: physics.Vec2{X: -2, Y: y}, Velocity: physics.Vec2{X: 400}, Continuous: i == 0,
+		if _, err := world.CreateBody(dynamics2d.BodyDef{
+			Type: dynamics2d.Dynamic, Shape: dynamics2d.Circle{Radius: 0.05}, Mass: 1,
+			Position: dynamics2d.Vec2{X: -2, Y: y}, Velocity: dynamics2d.Vec2{X: 400}, Continuous: i == 0,
 		}); err != nil {
 			return err
 		}
@@ -151,26 +151,26 @@ func (s *Session) setupCCD2D() error {
 }
 
 func (s *Session) setup3D() error {
-	add := func(def physics3d.BodyDef) error {
+	add := func(def dynamics3d.BodyDef) error {
 		_, err := s.world3.CreateBody(def)
 		return err
 	}
-	if err := add(physics3d.BodyDef{Shape: physics3d.Box{HalfExtents: physics3d.Vec3{X: 6, Y: 0.3, Z: 6}}, Position: physics3d.Vec3{Y: -0.3}, Friction: 0.65}); err != nil {
+	if err := add(dynamics3d.BodyDef{Shape: dynamics3d.Box{HalfExtents: dynamics3d.Vec3{X: 6, Y: 0.3, Z: 6}}, Position: dynamics3d.Vec3{Y: -0.3}, Friction: 0.65}); err != nil {
 		return err
 	}
 	if s.scene == "pendulum" {
-		anchor, err := s.world3.CreateBody(physics3d.BodyDef{Shape: physics3d.Sphere{Radius: 0.13}, Position: physics3d.Vec3{Y: 4}})
+		anchor, err := s.world3.CreateBody(dynamics3d.BodyDef{Shape: dynamics3d.Sphere{Radius: 0.13}, Position: dynamics3d.Vec3{Y: 4}})
 		if err != nil {
 			return err
 		}
-		bob, err := s.world3.CreateBody(physics3d.BodyDef{
-			Type: physics3d.Dynamic, Shape: physics3d.Sphere{Radius: 0.4}, Mass: 2,
-			Position: physics3d.Vec3{X: 2.4, Y: 2.2}, Velocity: physics3d.Vec3{Z: 1.8}, Friction: 0.6,
+		bob, err := s.world3.CreateBody(dynamics3d.BodyDef{
+			Type: dynamics3d.Dynamic, Shape: dynamics3d.Sphere{Radius: 0.4}, Mass: 2,
+			Position: dynamics3d.Vec3{X: 2.4, Y: 2.2}, Velocity: dynamics3d.Vec3{Z: 1.8}, Friction: 0.6,
 		})
 		if err != nil {
 			return err
 		}
-		joint, err := s.world3.CreateDistanceJoint(physics3d.DistanceJointDef{BodyA: anchor, BodyB: bob, Length: 3})
+		joint, err := s.world3.CreateDistanceJoint(dynamics3d.DistanceJointDef{BodyA: anchor, BodyB: bob, Length: 3})
 		if err != nil {
 			return err
 		}
@@ -178,11 +178,11 @@ func (s *Session) setup3D() error {
 		return nil
 	}
 	// Low walls contain the scene after a kick, without hiding the bodies.
-	for _, wall := range []physics3d.BodyDef{
-		{Shape: physics3d.Box{HalfExtents: physics3d.Vec3{X: 0.15, Y: 0.6, Z: 6}}, Position: physics3d.Vec3{X: -6, Y: 0.6}},
-		{Shape: physics3d.Box{HalfExtents: physics3d.Vec3{X: 0.15, Y: 0.6, Z: 6}}, Position: physics3d.Vec3{X: 6, Y: 0.6}},
-		{Shape: physics3d.Box{HalfExtents: physics3d.Vec3{X: 6, Y: 0.6, Z: 0.15}}, Position: physics3d.Vec3{Y: 0.6, Z: -6}},
-		{Shape: physics3d.Box{HalfExtents: physics3d.Vec3{X: 6, Y: 0.6, Z: 0.15}}, Position: physics3d.Vec3{Y: 0.6, Z: 6}},
+	for _, wall := range []dynamics3d.BodyDef{
+		{Shape: dynamics3d.Box{HalfExtents: dynamics3d.Vec3{X: 0.15, Y: 0.6, Z: 6}}, Position: dynamics3d.Vec3{X: -6, Y: 0.6}},
+		{Shape: dynamics3d.Box{HalfExtents: dynamics3d.Vec3{X: 0.15, Y: 0.6, Z: 6}}, Position: dynamics3d.Vec3{X: 6, Y: 0.6}},
+		{Shape: dynamics3d.Box{HalfExtents: dynamics3d.Vec3{X: 6, Y: 0.6, Z: 0.15}}, Position: dynamics3d.Vec3{Y: 0.6, Z: -6}},
+		{Shape: dynamics3d.Box{HalfExtents: dynamics3d.Vec3{X: 6, Y: 0.6, Z: 0.15}}, Position: dynamics3d.Vec3{Y: 0.6, Z: 6}},
 	} {
 		wall.Friction = 0.5
 		if err := add(wall); err != nil {
@@ -192,33 +192,33 @@ func (s *Session) setup3D() error {
 	if s.scene == "stack" {
 		for row := 0; row < 3; row++ {
 			for column := 0; column < 2; column++ {
-				if err := add(physics3d.BodyDef{
-					Type: physics3d.Dynamic, Shape: physics3d.Box{HalfExtents: physics3d.Vec3{X: 0.45, Y: 0.45, Z: 0.45}},
-					Mass: 1, Position: physics3d.Vec3{X: float64(column)*1.1 - 0.55, Y: 0.46 + float64(row)*0.91}, Friction: 0.65,
+				if err := add(dynamics3d.BodyDef{
+					Type: dynamics3d.Dynamic, Shape: dynamics3d.Box{HalfExtents: dynamics3d.Vec3{X: 0.45, Y: 0.45, Z: 0.45}},
+					Mass: 1, Position: dynamics3d.Vec3{X: float64(column)*1.1 - 0.55, Y: 0.46 + float64(row)*0.91}, Friction: 0.65,
 				}); err != nil {
 					return err
 				}
 			}
 		}
 		for _, x := range []float64{-2.2, 2.2} {
-			if err := add(physics3d.BodyDef{Type: physics3d.Dynamic, Shape: physics3d.Sphere{Radius: 0.5}, Mass: 1, Position: physics3d.Vec3{X: x, Y: 3.6, Z: 1}, Restitution: 0.55, Friction: 0.5}); err != nil {
+			if err := add(dynamics3d.BodyDef{Type: dynamics3d.Dynamic, Shape: dynamics3d.Sphere{Radius: 0.5}, Mass: 1, Position: dynamics3d.Vec3{X: x, Y: 3.6, Z: 1}, Restitution: 0.55, Friction: 0.5}); err != nil {
 				return err
 			}
 		}
-		return add(physics3d.BodyDef{
-			Type: physics3d.Dynamic, Shape: physics3d.Box{HalfExtents: physics3d.Vec3{X: 0.5, Y: 0.35, Z: 0.6}}, Mass: 1.5,
-			Position: physics3d.Vec3{X: 2, Y: 4.5, Z: -1.5}, Rotation: physics3d.QuaternionFromAxisAngle(physics3d.Vec3{X: 1, Z: 1}, 0.6), Friction: 0.6,
+		return add(dynamics3d.BodyDef{
+			Type: dynamics3d.Dynamic, Shape: dynamics3d.Box{HalfExtents: dynamics3d.Vec3{X: 0.5, Y: 0.35, Z: 0.6}}, Mass: 1.5,
+			Position: dynamics3d.Vec3{X: 2, Y: 4.5, Z: -1.5}, Rotation: dynamics3d.QuaternionFromAxisAngle(dynamics3d.Vec3{X: 1, Z: 1}, 0.6), Friction: 0.6,
 		})
 	}
 	for i := 0; i < 14; i++ {
-		var shape physics3d.Shape = physics3d.Sphere{Radius: 0.35 + float64(i%3)*0.05}
+		var shape dynamics3d.Shape = dynamics3d.Sphere{Radius: 0.35 + float64(i%3)*0.05}
 		if i%2 == 1 {
-			shape = physics3d.Box{HalfExtents: physics3d.Vec3{X: 0.35, Y: 0.35, Z: 0.35}}
+			shape = dynamics3d.Box{HalfExtents: dynamics3d.Vec3{X: 0.35, Y: 0.35, Z: 0.35}}
 		}
-		if err := add(physics3d.BodyDef{
-			Type: physics3d.Dynamic, Shape: shape, Mass: 1,
-			Position:    physics3d.Vec3{X: float64(i%4)*1.2 - 1.8, Y: 2 + float64(i/4)*1.2, Z: float64((i*3)%5)*0.9 - 1.8},
-			Rotation:    physics3d.QuaternionFromAxisAngle(physics3d.Vec3{X: 1, Y: 2, Z: 1}, float64(i)*0.17),
+		if err := add(dynamics3d.BodyDef{
+			Type: dynamics3d.Dynamic, Shape: shape, Mass: 1,
+			Position:    dynamics3d.Vec3{X: float64(i%4)*1.2 - 1.8, Y: 2 + float64(i/4)*1.2, Z: float64((i*3)%5)*0.9 - 1.8},
+			Rotation:    dynamics3d.QuaternionFromAxisAngle(dynamics3d.Vec3{X: 1, Y: 2, Z: 1}, float64(i)*0.17),
 			Restitution: 0.35, Friction: 0.55,
 		}); err != nil {
 			return err
@@ -228,29 +228,29 @@ func (s *Session) setup3D() error {
 }
 
 func (s *Session) setup2D() error {
-	for _, def := range []physics.BodyDef{
-		{Shape: physics.Box{HalfExtents: physics.Vec2{X: 0.15, Y: 3.75}}, Position: physics.Vec2{X: -6}},
-		{Shape: physics.Box{HalfExtents: physics.Vec2{X: 0.15, Y: 3.75}}, Position: physics.Vec2{X: 6}},
-		{Shape: physics.Box{HalfExtents: physics.Vec2{X: 6, Y: 0.15}}, Position: physics.Vec2{Y: -3.75}},
-		{Shape: physics.Box{HalfExtents: physics.Vec2{X: 6, Y: 0.15}}, Position: physics.Vec2{Y: 3.75}},
-		{Shape: physics.Box{HalfExtents: physics.Vec2{X: 0.35, Y: 0.7}}, Position: physics.Vec2{X: -1.2, Y: -1.9}, Angle: 0.4},
+	for _, def := range []dynamics2d.BodyDef{
+		{Shape: dynamics2d.Box{HalfExtents: dynamics2d.Vec2{X: 0.15, Y: 3.75}}, Position: dynamics2d.Vec2{X: -6}},
+		{Shape: dynamics2d.Box{HalfExtents: dynamics2d.Vec2{X: 0.15, Y: 3.75}}, Position: dynamics2d.Vec2{X: 6}},
+		{Shape: dynamics2d.Box{HalfExtents: dynamics2d.Vec2{X: 6, Y: 0.15}}, Position: dynamics2d.Vec2{Y: -3.75}},
+		{Shape: dynamics2d.Box{HalfExtents: dynamics2d.Vec2{X: 6, Y: 0.15}}, Position: dynamics2d.Vec2{Y: 3.75}},
+		{Shape: dynamics2d.Box{HalfExtents: dynamics2d.Vec2{X: 0.35, Y: 0.7}}, Position: dynamics2d.Vec2{X: -1.2, Y: -1.9}, Angle: 0.4},
 	} {
 		def.Restitution = 0.92
 		if _, err := s.world2.CreateBody(def); err != nil {
 			return err
 		}
 	}
-	if _, err := s.world2.CreateBody(physics.BodyDef{
-		Type: physics.Dynamic, Shape: physics.Circle{Radius: 0.38}, Mass: 1,
-		Position: physics.Vec2{X: -3.6}, Velocity: physics.Vec2{X: 5}, Restitution: 0.92, Friction: 0.05,
+	if _, err := s.world2.CreateBody(dynamics2d.BodyDef{
+		Type: dynamics2d.Dynamic, Shape: dynamics2d.Circle{Radius: 0.38}, Mass: 1,
+		Position: dynamics2d.Vec2{X: -3.6}, Velocity: dynamics2d.Vec2{X: 5}, Restitution: 0.92, Friction: 0.05,
 	}); err != nil {
 		return err
 	}
 	for row := 0; row < 3; row++ {
 		for i := 0; i <= row; i++ {
-			if _, err := s.world2.CreateBody(physics.BodyDef{
-				Type: physics.Dynamic, Shape: physics.Circle{Radius: 0.38}, Mass: 1,
-				Position: physics.Vec2{X: 1 + float64(row)*0.7, Y: (float64(i) - float64(row)/2) * 0.8}, Restitution: 0.92, Friction: 0.05,
+			if _, err := s.world2.CreateBody(dynamics2d.BodyDef{
+				Type: dynamics2d.Dynamic, Shape: dynamics2d.Circle{Radius: 0.38}, Mass: 1,
+				Position: dynamics2d.Vec2{X: 1 + float64(row)*0.7, Y: (float64(i) - float64(row)/2) * 0.8}, Restitution: 0.92, Friction: 0.05,
 			}); err != nil {
 				return err
 			}
@@ -289,12 +289,12 @@ func (s *Session) Configure(gravity float64, substeps int) error {
 	}
 	s.gravity = gravity
 	if s.world3 != nil {
-		s.world3.Gravity, s.world3.Substeps = physics3d.Vec3{Y: -gravity}, substeps
+		s.world3.Gravity, s.world3.Substeps = dynamics3d.Vec3{Y: -gravity}, substeps
 		if s.comparison3 != nil {
 			s.comparison3.Gravity, s.comparison3.Substeps = s.world3.Gravity, substeps
 		}
 	} else {
-		s.world2.Gravity, s.world2.Substeps = physics.Vec2{Y: -gravity}, substeps
+		s.world2.Gravity, s.world2.Substeps = dynamics2d.Vec2{Y: -gravity}, substeps
 		if s.comparison2 != nil {
 			s.comparison2.Gravity, s.comparison2.Substeps = s.world2.Gravity, substeps
 		}
@@ -306,13 +306,13 @@ func (s *Session) dynamicCount() int {
 	count := 0
 	if s.world3 != nil {
 		for _, b := range s.world3.Bodies() {
-			if b.Type() == physics3d.Dynamic {
+			if b.Type() == dynamics3d.Dynamic {
 				count++
 			}
 		}
 	} else {
 		for _, b := range s.world2.Bodies() {
-			if b.Type() == physics.Dynamic {
+			if b.Type() == dynamics2d.Dynamic {
 				count++
 			}
 		}
@@ -330,28 +330,28 @@ func (s *Session) Spawn(kind string) error {
 	}
 	i := s.spawned
 	if s.world3 != nil {
-		var shape physics3d.Shape = physics3d.Sphere{Radius: 0.4}
+		var shape dynamics3d.Shape = dynamics3d.Sphere{Radius: 0.4}
 		if kind == "box" {
-			shape = physics3d.Box{HalfExtents: physics3d.Vec3{X: 0.4, Y: 0.4, Z: 0.4}}
+			shape = dynamics3d.Box{HalfExtents: dynamics3d.Vec3{X: 0.4, Y: 0.4, Z: 0.4}}
 		}
-		_, err := s.world3.CreateBody(physics3d.BodyDef{
-			Type: physics3d.Dynamic, Shape: shape, Mass: 1,
-			Position:    physics3d.Vec3{X: float64(i%5)*0.9 - 1.8, Y: 5.5 + float64(i%3)*0.6, Z: float64((i*3)%5)*0.8 - 1.6},
-			Rotation:    physics3d.QuaternionFromAxisAngle(physics3d.Vec3{X: 1, Y: 1, Z: 1}, float64(i)*0.3),
+		_, err := s.world3.CreateBody(dynamics3d.BodyDef{
+			Type: dynamics3d.Dynamic, Shape: shape, Mass: 1,
+			Position:    dynamics3d.Vec3{X: float64(i%5)*0.9 - 1.8, Y: 5.5 + float64(i%3)*0.6, Z: float64((i*3)%5)*0.8 - 1.6},
+			Rotation:    dynamics3d.QuaternionFromAxisAngle(dynamics3d.Vec3{X: 1, Y: 1, Z: 1}, float64(i)*0.3),
 			Restitution: 0.35, Friction: 0.6,
 		})
 		if err != nil {
 			return err
 		}
 	} else {
-		var shape physics.Shape = physics.Circle{Radius: 0.38}
+		var shape dynamics2d.Shape = dynamics2d.Circle{Radius: 0.38}
 		if kind == "box" {
-			shape = physics.Box{HalfExtents: physics.Vec2{X: 0.35, Y: 0.35}}
+			shape = dynamics2d.Box{HalfExtents: dynamics2d.Vec2{X: 0.35, Y: 0.35}}
 		}
-		_, err := s.world2.CreateBody(physics.BodyDef{
-			Type: physics.Dynamic, Shape: shape, Mass: 1,
-			Position: physics.Vec2{X: float64(i%6)*0.8 - 2.5, Y: 2},
-			Velocity: physics.Vec2{X: 2, Y: -1}, Restitution: 0.9, Friction: 0.05,
+		_, err := s.world2.CreateBody(dynamics2d.BodyDef{
+			Type: dynamics2d.Dynamic, Shape: shape, Mass: 1,
+			Position: dynamics2d.Vec2{X: float64(i%6)*0.8 - 2.5, Y: 2},
+			Velocity: dynamics2d.Vec2{X: 2, Y: -1}, Restitution: 0.9, Friction: 0.05,
 		})
 		if err != nil {
 			return err
@@ -365,20 +365,20 @@ func (s *Session) Spawn(kind string) error {
 func (s *Session) Kick() error {
 	if s.world3 != nil {
 		for i, b := range s.world3.Bodies() {
-			if b.Type() != physics3d.Dynamic {
+			if b.Type() != dynamics3d.Dynamic {
 				continue
 			}
-			impulse := physics3d.Vec3{X: float64(i%3-1) * 1.3, Y: 3.2, Z: float64((i+1)%3-1) * 1.4}.Mul(b.Mass())
-			if err := b.ApplyImpulse(impulse, b.Position.Add(physics3d.Vec3{Y: 0.15, Z: 0.15})); err != nil {
+			impulse := dynamics3d.Vec3{X: float64(i%3-1) * 1.3, Y: 3.2, Z: float64((i+1)%3-1) * 1.4}.Mul(b.Mass())
+			if err := b.ApplyImpulse(impulse, b.Position.Add(dynamics3d.Vec3{Y: 0.15, Z: 0.15})); err != nil {
 				return err
 			}
 		}
 	} else {
 		for i, b := range s.world2.Bodies() {
-			if b.Type() != physics.Dynamic {
+			if b.Type() != dynamics2d.Dynamic {
 				continue
 			}
-			if err := b.ApplyImpulse(physics.Vec2{X: float64(i%3-1) * 2, Y: 1.5}, b.Position.Add(physics.Vec2{Y: 0.1})); err != nil {
+			if err := b.ApplyImpulse(dynamics2d.Vec2{X: float64(i%3-1) * 2, Y: 1.5}, b.Position.Add(dynamics2d.Vec2{Y: 0.1})); err != nil {
 				return err
 			}
 		}
@@ -386,33 +386,33 @@ func (s *Session) Kick() error {
 	return nil
 }
 
-func vector(v physics3d.Vec3) Vector { return Vector{v.X, v.Y, v.Z} }
+func vector(v dynamics3d.Vec3) Vector { return Vector{v.X, v.Y, v.Z} }
 
 // Snapshot exports only geometry and measurements; all simulation remains in Go.
 func (s *Session) Snapshot() Snapshot {
 	state := Snapshot{Scene: s.scene, Time: s.time, Gravity: s.gravity, Bodies: []RenderBody{}, Joints: []RenderJoint{}}
 	if s.world3 != nil {
 		state.Dimension, state.Substeps = 3, s.world3.Substeps
-		for _, world := range []*physics3d.World{s.world3, s.comparison3} {
+		for _, world := range []*dynamics3d.World{s.world3, s.comparison3} {
 			if world == nil {
 				continue
 			}
 			for _, b := range world.Bodies() {
 				id := len(state.Bodies)
-				body := RenderBody{ID: id, Position: vector(b.Position), Rotation: Rotation{b.Rotation.X, b.Rotation.Y, b.Rotation.Z, b.Rotation.W}, Static: b.Type() == physics3d.Static, Continuous: b.Continuous, Color: colors[id%len(colors)]}
+				body := RenderBody{ID: id, Position: vector(b.Position), Rotation: Rotation{b.Rotation.X, b.Rotation.Y, b.Rotation.Z, b.Rotation.W}, Static: b.Type() == dynamics3d.Static, Continuous: b.Continuous, Color: colors[id%len(colors)]}
 				if body.Static {
 					body.Color = "#344657"
 				} else if s.scene == "ccd" {
 					body.Color = ccdColor(body.Continuous)
 				}
 				switch shape := b.Shape().(type) {
-				case physics3d.Sphere:
+				case dynamics3d.Sphere:
 					body.Shape, body.Radius = "sphere", shape.Radius
-				case physics3d.Box:
+				case dynamics3d.Box:
 					body.Shape, body.HalfExtents = "box", vector(shape.HalfExtents)
 				}
 				state.Bodies = append(state.Bodies, body)
-				if b.Type() == physics3d.Dynamic {
+				if b.Type() == dynamics3d.Dynamic {
 					state.Energy += 0.5*b.Mass()*b.Velocity.LengthSquared() + 0.5*b.AngularVelocity.Dot(b.AngularMomentum()) + b.Mass()*s.gravity*b.Position.Y
 				}
 			}
@@ -424,26 +424,26 @@ func (s *Session) Snapshot() Snapshot {
 		}
 	} else {
 		state.Dimension, state.Substeps = 2, s.world2.Substeps
-		for _, world := range []*physics.World{s.world2, s.comparison2} {
+		for _, world := range []*dynamics2d.World{s.world2, s.comparison2} {
 			if world == nil {
 				continue
 			}
 			for _, b := range world.Bodies() {
 				id := len(state.Bodies)
-				body := RenderBody{ID: id, Position: Vector{X: b.Position.X, Y: b.Position.Y}, Rotation: Rotation{Z: math.Sin(b.Angle / 2), W: math.Cos(b.Angle / 2)}, Static: b.Type() == physics.Static, Continuous: b.Continuous, Color: colors[id%len(colors)]}
+				body := RenderBody{ID: id, Position: Vector{X: b.Position.X, Y: b.Position.Y}, Rotation: Rotation{Z: math.Sin(b.Angle / 2), W: math.Cos(b.Angle / 2)}, Static: b.Type() == dynamics2d.Static, Continuous: b.Continuous, Color: colors[id%len(colors)]}
 				if body.Static {
 					body.Color = "#344657"
 				} else if s.scene == "ccd2d" {
 					body.Color = ccdColor(body.Continuous)
 				}
 				switch shape := b.Shape().(type) {
-				case physics.Circle:
+				case dynamics2d.Circle:
 					body.Shape, body.Radius = "circle", shape.Radius
-				case physics.Box:
+				case dynamics2d.Box:
 					body.Shape, body.HalfExtents = "box", Vector{X: shape.HalfExtents.X, Y: shape.HalfExtents.Y}
 				}
 				state.Bodies = append(state.Bodies, body)
-				if b.Type() == physics.Dynamic {
+				if b.Type() == dynamics2d.Dynamic {
 					state.Energy += 0.5*b.Mass()*b.Velocity.LengthSquared() + 0.5*b.Inertia()*b.AngularVelocity*b.AngularVelocity + b.Mass()*s.gravity*b.Position.Y
 				}
 			}
