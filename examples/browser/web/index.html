@@ -22,7 +22,7 @@
         <p class="eyebrow">EXPLORE THE ENGINE</p>
         <h1>A world in motion.</h1>
         <p class="panel-intro">Change the scene. Add a little energy.<br>See the physics play out.</p>
-        <div class="section-heading"><h2>Scenes</h2><span>01 — 06</span></div>
+        <div class="section-heading"><h2>Scenes</h2><span>01 — 08</span></div>
         <div class="scene-list" role="group" aria-label="Choose a scene">
           <button class="scene-button engine-control selected" data-scene="stack" aria-pressed="true" disabled>
             <span class="scene-icon"><svg viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="m8 3 6-3 6 3v7l-6 3-6-3V3ZM2 16l6-3 6 3v7l-6 3-6-3v-7Zm12 0 6-3 6 3v7l-6 3-6-3v-7Z" transform="translate(0 1)" stroke="currentColor" stroke-width="1.5"/></svg></span>
@@ -47,6 +47,14 @@
           <button class="scene-button engine-control" data-scene="ccd2d" aria-pressed="false" disabled>
             <span class="scene-icon"><svg viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="M17 3v22M3 9h9m-3-3 3 3-3 3M3 20h20m-3-3 3 3-3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
             <span class="scene-copy"><strong>2D CCD thin-wall test</strong><small>The same shot in two dimensions</small></span><span class="dimension-tag dimension-tag-2d">2D</span>
+          </button>
+          <button class="scene-button engine-control" data-scene="penetration" aria-pressed="false" disabled>
+            <span class="scene-icon"><svg viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="M11 3v22m7-22v22M2 8h21m-4-3 4 3-4 3M2 20h12m-3-3 3 3-3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="scene-copy"><strong>Penetration lab</strong><small>Energy, barriers &amp; damage</small></span><span class="dimension-tag">3D</span>
+          </button>
+          <button class="scene-button engine-control" data-scene="penetration2d" aria-pressed="false" disabled>
+            <span class="scene-icon"><svg viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="M11 3v22m7-22v22M2 8h21m-4-3 4 3-4 3M2 20h12m-3-3 3 3-3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="scene-copy"><strong>2D penetration lab</strong><small>The same energy test in 2D</small></span><span class="dimension-tag dimension-tag-2d">2D</span>
           </button>
         </div>
       </section>
@@ -97,6 +105,12 @@
         <div class="fatal-overlay" id="fatal-overlay" role="alert" hidden><span class="error-symbol">!</span><strong>The engine couldn't start</strong><p id="fatal-message"></p><button class="button button-secondary" id="reload-button">Try again</button></div>
         <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
       </div>
+
+      <section class="penetration-note" id="penetration-note" aria-label="Penetration comparison results" hidden>
+        <div class="penetration-heading"><strong>One launch. Three outcomes.</strong><span>Point projectiles; markers enlarged.</span></div>
+        <div class="penetration-results" id="penetration-results" aria-live="polite"></div>
+        <p>1 kg · 40 m/s · 800 J · base damage 100 · barrier resistance 1,000 J/m. Damage scales with energy on target entry; only target hit events reduce HP. These are game-tuned values. Straight paths, no gravity or ricochet. Playback pauses when all shots stop; reset to replay.</p>
+      </section>
 
       <div class="metrics" aria-label="Simulation metrics">
         <div class="metric"><span class="metric-label">SIMULATION TIME</span><span class="metric-number" id="time-value">0.00<span>s</span></span></div>

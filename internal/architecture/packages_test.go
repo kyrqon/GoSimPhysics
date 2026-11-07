@@ -18,12 +18,16 @@ const modulePath = "github.com/kyrqon/GoSimPhysics"
 func TestPublicPackageLayers(t *testing.T) {
 	root := filepath.Join("..", "..")
 	layers := map[string][]string{
-		"math2d":      {"internal/numeric"},
-		"math3d":      {"internal/numeric"},
-		"collision2d": {"math2d", "internal/numeric"},
-		"collision3d": {"math3d", "internal/numeric"},
-		"dynamics2d":  {"math2d", "collision2d", "internal/numeric"},
-		"dynamics3d":  {"math3d", "collision3d", "internal/numeric"},
+		"math2d":               {"internal/numeric"},
+		"math3d":               {"internal/numeric"},
+		"collision2d":          {"math2d", "internal/numeric"},
+		"collision3d":          {"math3d", "internal/numeric"},
+		"dynamics2d":           {"math2d", "collision2d", "internal/numeric"},
+		"dynamics3d":           {"math3d", "collision3d", "internal/numeric"},
+		"ballistics":           {"internal/numeric"},
+		"ballistics2d":         {"ballistics", "math2d", "collision2d", "internal/numeric", "internal/penetration"},
+		"ballistics3d":         {"ballistics", "math3d", "collision3d", "internal/numeric", "internal/penetration"},
+		"internal/penetration": {"ballistics", "internal/numeric"},
 	}
 	for name, allowed := range layers {
 		entries, err := os.ReadDir(filepath.Join(root, name))

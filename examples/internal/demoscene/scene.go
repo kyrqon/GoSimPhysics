@@ -5,8 +5,15 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/kyrqon/GoSimPhysics/ballistics"
+	"github.com/kyrqon/GoSimPhysics/ballistics2d"
+	"github.com/kyrqon/GoSimPhysics/ballistics3d"
+	"github.com/kyrqon/GoSimPhysics/collision2d"
+	"github.com/kyrqon/GoSimPhysics/collision3d"
 	"github.com/kyrqon/GoSimPhysics/dynamics2d"
 	"github.com/kyrqon/GoSimPhysics/dynamics3d"
+	"github.com/kyrqon/GoSimPhysics/math2d"
+	"github.com/kyrqon/GoSimPhysics/math3d"
 )
 
 // Vector and Rotation are renderer-facing data, independent of either engine API.
@@ -40,17 +47,55 @@ type RenderJoint struct {
 	B Vector `json:"b"`
 }
 
+// RenderShotEvent records an actual Go event, used for entry/exit/stop markers.
+type RenderShotEvent struct {
+	Kind     string  `json:"kind"`
+	TargetID string  `json:"targetID"`
+	Position Vector  `json:"position"`
+	Energy   float64 `json:"energy"`
+	Damage   float64 `json:"damage"`
+}
+
+// RenderShot includes the example game's health ledger. Only target Hit events
+// change HP; the ballistics packages themselves do not manage game health.
+type RenderShot struct {
+	Lane          string            `json:"lane"`
+	Label         string            `json:"label"`
+	Color         string            `json:"color"`
+	TargetID      string            `json:"targetID"`
+	WallID        string            `json:"wallID"`
+	Start         Vector            `json:"start"`
+	Position      Vector            `json:"position"`
+	Target        Vector            `json:"target"`
+	Damage        float64           `json:"damage"`
+	HP            float64           `json:"hp"`
+	Energy        float64           `json:"energy"`
+	ExitEnergy    float64           `json:"exitEnergy"`
+	Penetrated    bool              `json:"penetrated"`
+	Stopped       bool              `json:"stopped"`
+	StoppedInWall bool              `json:"stoppedInWall"`
+	Events        []RenderShotEvent `json:"events"`
+}
+
+type demoShot struct {
+	render      RenderShot
+	projectile2 *ballistics2d.Projectile
+	projectile3 *ballistics3d.Projectile
+}
+
 type Snapshot struct {
-	Dimension  int           `json:"dimension"`
-	Scene      string        `json:"scene"`
-	Time       float64       `json:"time"`
-	BodyCount  int           `json:"bodyCount"`
-	Energy     float64       `json:"energy"`
-	JointError float64       `json:"jointError"`
-	Gravity    float64       `json:"gravity"`
-	Substeps   int           `json:"substeps"`
-	Bodies     []RenderBody  `json:"bodies"`
-	Joints     []RenderJoint `json:"joints"`
+	Dimension          int           `json:"dimension"`
+	Scene              string        `json:"scene"`
+	Time               float64       `json:"time"`
+	BodyCount          int           `json:"bodyCount"`
+	Energy             float64       `json:"energy"`
+	JointError         float64       `json:"jointError"`
+	Gravity            float64       `json:"gravity"`
+	Substeps           int           `json:"substeps"`
+	Bodies             []RenderBody  `json:"bodies"`
+	Joints             []RenderJoint `json:"joints"`
+	Ballistics         []RenderShot  `json:"ballistics,omitempty"`
+	BallisticsComplete bool          `json:"ballisticsComplete,omitempty"`
 }
 
 // Session is not safe for concurrent use. The browser invokes it on its Go thread.
@@ -59,13 +104,17 @@ type Session struct {
 	world2 *dynamics2d.World
 	// The discrete comparison runs independently so CCD event times cannot give
 	// its otherwise discrete solver additional collision samples.
-	comparison3 *dynamics3d.World
-	comparison2 *dynamics2d.World
-	joints3     []*dynamics3d.DistanceJoint
-	scene       string
-	time        float64
-	gravity     float64
-	spawned     int
+	comparison3       *dynamics3d.World
+	comparison2       *dynamics2d.World
+	joints3           []*dynamics3d.DistanceJoint
+	scene             string
+	time              float64
+	gravity           float64
+	spawned           int
+	shots             []demoShot
+	targets2          []ballistics2d.Target
+	targets3          []ballistics3d.Target
+	penetrationBodies []RenderBody
 }
 
 var colors = [...]string{"#5eead4", "#fbbf24", "#93c5fd", "#fb923c", "#c4b5fd", "#fda4af"}
@@ -73,6 +122,10 @@ var colors = [...]string{"#5eead4", "#fbbf24", "#93c5fd", "#fb923c", "#c4b5fd", 
 // New creates one of the named, deterministic demonstration scenes.
 func New(scene string) (*Session, error) {
 	s := &Session{scene: scene, gravity: 9.81}
+	if s.isPenetration() {
+		s.gravity = 0
+		return s, s.setupPenetration()
+	}
 	if scene == "billiards2d" || scene == "ccd2d" {
 		s.gravity = 0
 		s.world2 = dynamics2d.NewWorld(dynamics2d.Vec2{})
@@ -101,6 +154,128 @@ func New(scene string) (*Session, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+func (s *Session) isPenetration() bool { return s.scene == "penetration" || s.scene == "penetration2d" }
+
+// Three independent point shots compare the same game-tuned material. Marker
+// radius is a renderer convenience and is never passed to the ballistic solver.
+func (s *Session) setupPenetration() error {
+	lanes := []struct {
+		name, label, color string
+		halfX              float64
+	}{
+		{"clear", "Clear path", "#5eead4", 0},
+		{"thin", "Thin barrier · 0.3 m", "#fbbf24", 0.15},
+		{"thick", "Thick barrier · 2 m", "#fda4af", 1},
+	}
+	barrier := ballistics.Material{Name: "Game barrier", Resistance: 1000}
+	absorber := ballistics.Material{Name: "Game target", Resistance: 10000}
+	for i, lane := range lanes {
+		start, target := Vector{X: -3, Y: 0.5, Z: float64(i-1) * 2}, Vector{X: 3, Y: 0.5, Z: float64(i-1) * 2}
+		if s.scene == "penetration2d" {
+			start.Y, target.Y, start.Z, target.Z = float64(1-i)*2, float64(1-i)*2, 0, 0
+		}
+		shot := demoShot{render: RenderShot{Lane: lane.name, Label: lane.label, Color: lane.color, TargetID: lane.name + "-target", Start: start, Position: start, Target: target, HP: 100, Energy: 800, Events: []RenderShotEvent{}}}
+		addBox := func(id string, pos Vector, halfX float64, material ballistics.Material, shade string) {
+			ext := Vector{X: halfX, Y: 0.5, Z: 0.5}
+			s.penetrationBodies = append(s.penetrationBodies, RenderBody{ID: len(s.penetrationBodies), Shape: "box", Position: pos, Rotation: Rotation{W: 1}, HalfExtents: ext, Static: true, Color: shade})
+			if s.scene == "penetration2d" {
+				s.targets2 = append(s.targets2, ballistics2d.Target{ID: id, Collider: collision2d.Collider{Shape: collision2d.Box{HalfExtents: math2d.Vec2{X: halfX, Y: 0.5}}, Position: math2d.Vec2{X: pos.X, Y: pos.Y}}, Material: material})
+			} else {
+				s.targets3 = append(s.targets3, ballistics3d.Target{ID: id, Collider: collision3d.Collider{Shape: collision3d.Box{HalfExtents: math3d.Vec3{X: halfX, Y: 0.5, Z: 0.5}}, Position: math3d.Vec3{X: pos.X, Y: pos.Y, Z: pos.Z}}, Material: material})
+			}
+		}
+		if lane.halfX > 0 {
+			shot.render.WallID = lane.name + "-wall"
+			wall := target
+			wall.X = 0
+			addBox(shot.render.WallID, wall, lane.halfX, barrier, "#69849b")
+		}
+		addBox(shot.render.TargetID, target, 0.2, absorber, lane.color)
+		var err error
+		if s.scene == "penetration2d" {
+			shot.projectile2, err = ballistics2d.NewProjectile(ballistics2d.ProjectileDef{Position: math2d.Vec2{X: start.X, Y: start.Y}, Velocity: math2d.Vec2{X: 40}, Mass: 1, Damage: 100})
+		} else {
+			shot.projectile3, err = ballistics3d.NewProjectile(ballistics3d.ProjectileDef{Position: math3d.Vec3{X: start.X, Y: start.Y, Z: start.Z}, Velocity: math3d.Vec3{X: 40}, Mass: 1, Damage: 100})
+		}
+		if err != nil {
+			return err
+		}
+		s.shots = append(s.shots, shot)
+	}
+	return nil
+}
+
+func (shot *demoShot) record(kind ballistics.EventKind, targetID string, pos Vector, energy, damage float64, active []string) {
+	shot.render.Events = append(shot.render.Events, RenderShotEvent{Kind: kind.String(), TargetID: targetID, Position: pos, Energy: energy, Damage: damage})
+	if kind == ballistics.Hit && targetID == shot.render.TargetID {
+		shot.render.Damage += damage
+		shot.render.HP = math.Max(0, shot.render.HP-damage)
+	}
+	if kind == ballistics.Exit && targetID == shot.render.WallID {
+		shot.render.Penetrated, shot.render.ExitEnergy = true, energy
+	}
+	if kind == ballistics.Stop {
+		for _, id := range active {
+			if id == shot.render.WallID {
+				shot.render.StoppedInWall = true
+			}
+		}
+	}
+}
+
+func (s *Session) stepPenetration(dt float64) error {
+	for i := range s.shots {
+		shot := &s.shots[i]
+		if shot.render.Stopped {
+			continue
+		}
+		if shot.projectile2 != nil {
+			events, err := shot.projectile2.Step(dt, s.targets2)
+			if err != nil {
+				return err
+			}
+			for _, event := range events {
+				shot.record(event.Kind, event.TargetID, Vector{X: event.Position.X, Y: event.Position.Y}, event.Energy, event.Damage, event.ActiveTargets)
+			}
+			state := shot.projectile2.State()
+			shot.render.Position, shot.render.Energy, shot.render.Stopped = Vector{X: state.Position.X, Y: state.Position.Y}, state.Energy, state.Stopped
+		} else {
+			events, err := shot.projectile3.Step(dt, s.targets3)
+			if err != nil {
+				return err
+			}
+			for _, event := range events {
+				shot.record(event.Kind, event.TargetID, Vector{X: event.Position.X, Y: event.Position.Y, Z: event.Position.Z}, event.Energy, event.Damage, event.ActiveTargets)
+			}
+			state := shot.projectile3.State()
+			shot.render.Position, shot.render.Energy, shot.render.Stopped = Vector{X: state.Position.X, Y: state.Position.Y, Z: state.Position.Z}, state.Energy, state.Stopped
+		}
+	}
+	s.time += dt
+	return nil
+}
+
+func (s *Session) penetrationSnapshot() Snapshot {
+	state := Snapshot{Scene: s.scene, Time: s.time, Dimension: 3, Substeps: 1, Bodies: append([]RenderBody{}, s.penetrationBodies...), Joints: []RenderJoint{}, BallisticsComplete: true}
+	if s.scene == "penetration2d" {
+		state.Dimension = 2
+	}
+	for _, shot := range s.shots {
+		render := shot.render
+		render.Events = append([]RenderShotEvent{}, render.Events...)
+		state.Ballistics = append(state.Ballistics, render)
+		state.BallisticsComplete = state.BallisticsComplete && render.Stopped
+		state.Energy += render.Energy
+		shape := "sphere"
+		if state.Dimension == 2 {
+			shape = "circle"
+		}
+		state.Bodies = append(state.Bodies, RenderBody{ID: len(state.Bodies), Shape: shape, Position: render.Position, Radius: 0.08, Rotation: Rotation{W: 1}, Color: render.Color})
+	}
+	state.BodyCount = len(state.Bodies)
+	return state
 }
 
 // The two lanes differ only in Continuous. At 400 m/s the 0.1 m projectile
@@ -264,6 +439,9 @@ func (s *Session) Step(dt float64) error {
 	if !finite(dt) || dt <= 0 || dt > 0.1 {
 		return fmt.Errorf("demo step must be in (0, 0.1] seconds")
 	}
+	if s.isPenetration() {
+		return s.stepPenetration(dt)
+	}
 	var err error
 	if s.world3 != nil {
 		err = s.world3.Step(dt)
@@ -284,6 +462,9 @@ func (s *Session) Step(dt float64) error {
 
 // Configure changes the world settings without reconstructing the scene.
 func (s *Session) Configure(gravity float64, substeps int) error {
+	if s.isPenetration() {
+		return fmt.Errorf("world settings are fixed in the penetration comparison")
+	}
 	if !finite(gravity) || gravity < 0 || gravity > 30 || substeps < 1 || substeps > 8 {
 		return fmt.Errorf("gravity must be in [0,30] and substeps in [1,8]")
 	}
@@ -303,6 +484,9 @@ func (s *Session) Configure(gravity float64, substeps int) error {
 }
 
 func (s *Session) dynamicCount() int {
+	if s.isPenetration() {
+		return len(s.shots)
+	}
 	count := 0
 	if s.world3 != nil {
 		for _, b := range s.world3.Bodies() {
@@ -322,6 +506,9 @@ func (s *Session) dynamicCount() int {
 
 // Spawn adds a body, bounded to keep this small-scene demonstration responsive.
 func (s *Session) Spawn(kind string) error {
+	if s.isPenetration() {
+		return fmt.Errorf("spawning is unavailable in the penetration comparison")
+	}
 	if kind != "sphere" && kind != "box" {
 		return fmt.Errorf("unknown shape %q", kind)
 	}
@@ -363,6 +550,9 @@ func (s *Session) Spawn(kind string) error {
 
 // Kick applies off-center impulses to the dynamic bodies.
 func (s *Session) Kick() error {
+	if s.isPenetration() {
+		return fmt.Errorf("impulses are unavailable in the penetration comparison")
+	}
 	if s.world3 != nil {
 		for i, b := range s.world3.Bodies() {
 			if b.Type() != dynamics3d.Dynamic {
@@ -390,6 +580,9 @@ func vector(v dynamics3d.Vec3) Vector { return Vector{v.X, v.Y, v.Z} }
 
 // Snapshot exports only geometry and measurements; all simulation remains in Go.
 func (s *Session) Snapshot() Snapshot {
+	if s.isPenetration() {
+		return s.penetrationSnapshot()
+	}
 	state := Snapshot{Scene: s.scene, Time: s.time, Gravity: s.gravity, Bodies: []RenderBody{}, Joints: []RenderJoint{}}
 	if s.world3 != nil {
 		state.Dimension, state.Substeps = 3, s.world3.Substeps

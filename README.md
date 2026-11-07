@@ -1,6 +1,7 @@
 # GoSimPhysics
 
-GoSimPhysics is a Go library for 2D and 3D rigid-body simulation in game engines.
+GoSimPhysics is a Go library for 2D and 3D rigid-body simulation and game projectile
+penetration.
 Embed it in your game or engine; the host application owns the game loop,
 rendering, input, and conversion between world units and screen coordinates.
 
@@ -15,6 +16,9 @@ with no third-party dependencies. Import the packages you need:
 | [`collision3d`](collision3d) | `github.com/kyrqon/GoSimPhysics/collision3d` | Sphere/box geometry, contact and sweep queries |
 | [`dynamics2d`](dynamics2d) | `github.com/kyrqon/GoSimPhysics/dynamics2d` | 2D bodies, worlds, constraints, and collision response |
 | [`dynamics3d`](dynamics3d) | `github.com/kyrqon/GoSimPhysics/dynamics3d` | 3D bodies, worlds, constraints, and collision response |
+| [`ballistics`](ballistics) | `github.com/kyrqon/GoSimPhysics/ballistics` | Shared material, energy, damage, and event rules |
+| [`ballistics2d`](ballistics2d) | `github.com/kyrqon/GoSimPhysics/ballistics2d` | Point projectiles and penetration through 2D target snapshots |
+| [`ballistics3d`](ballistics3d) | `github.com/kyrqon/GoSimPhysics/ballistics3d` | Point projectiles and penetration through 3D target snapshots |
 
 The package reorganization intentionally changes imports. Earlier entry points
 have been removed; no compatibility facades are provided.
@@ -24,10 +28,13 @@ have been removed; no compatibility facades are provided.
 ```text
 math2d/       Vec2
 math3d/       Vec3, Quaternion
-collision2d/  Shape, Collider, Motion, Contact, TimeOfImpact
-collision3d/  Shape, Collider, Motion, Contact, TimeOfImpact
+collision2d/  Shape, Collider, Motion, Contact, TimeOfImpact, RayInterval
+collision3d/  Shape, Collider, Motion, Contact, TimeOfImpact, RayInterval
 dynamics2d/   Body, World, DistanceJoint, CCD response
 dynamics3d/   Body, World, DistanceJoint, CCD response
+ballistics/   Material, energy and damage rules, event kinds
+ballistics2d/ 2D Projectile, Target, State, and penetration events
+ballistics3d/ 3D Projectile, Target, State, and penetration events
 examples/     Console examples and the offline browser playground
 ```
 
@@ -36,7 +43,9 @@ dependency to the package that uses it; imports run in the opposite direction:
 
 ```text
 math2d → collision2d → dynamics2d
+                   ↘ ballistics2d ← ballistics
 math3d → collision3d → dynamics3d
+                   ↘ ballistics3d ← ballistics
 ```
 
 Collision queries operate on geometry and motion without creating a world or
@@ -44,6 +53,8 @@ importing dynamics. Dynamics owns integration, forces, joints, and impulse
 response. For convenience, the dynamics packages also expose aliases for their
 dimension's vector, shape, and contact types, plus quaternions in 3D, so a
 simulation can usually use a single import.
+The ballistics packages form a separate branch over collision and math, plus
+the shared `ballistics` rules. They do not import or advance a dynamics world.
 
 ## Interactive browser demo
 
@@ -65,14 +76,20 @@ Open `http://127.0.0.1:8080`. This command rebuilds the WebAssembly from the loc
 Go source before serving it. Use `-addr 127.0.0.1:8081` to choose another port.
 This option also works with managed browsers that restrict local-file access.
 
-The demo includes 3D stacking, mixed-shape falling bodies, a spherical pendulum,
-2D billiards, and 2D/3D CCD thin-wall comparisons. Pause or single-step, spawn
-shapes, apply impulses, change
-gravity and substeps, and drag/scroll to orbit/zoom the 3D camera. Simulation
+The eight scenes include 3D stacking, mixed-shape falling bodies, a spherical
+pendulum, 2D billiards, 2D/3D CCD thin-wall comparisons, and 2D/3D Penetration lab
+scenes. Pause or single-step, spawn shapes, apply impulses, change gravity and
+substeps, and drag/scroll to orbit/zoom the 3D camera. Simulation
 runs in the actual Go library; JavaScript handles rendering and controls.
 The CCD comparisons run the same shot in independent worlds, with CCD enabled
 in one and disabled in the other. They automatically pause after one 1/60-second
 step so the actual final positions remain visible; reset replays the shot.
+The Penetration lab uses three real point-projectile simulations: a clear path,
+a 0.3-unit barrier, and a 2-unit barrier. The example game owns targets with
+100 HP and deducts only returned `Hit` damage. With the same launch and material,
+the final target HP values are `0`, `37.5`, and `100`; the thin barrier leaves
+500 energy units before the target, while the thick barrier stops the shot.
+The displayed projectile markers have a visual radius only.
 
 To regenerate the standalone HTML after changing the library or frontend:
 
@@ -97,6 +114,9 @@ in [`THIRD_PARTY_LICENSES.txt`](examples/browser/THIRD_PARTY_LICENSES.txt).
 - Rigid distance joints between two body-local anchors.
 - Direct contact queries through `Collide`.
 - Opt-in continuous collision detection and pure `TimeOfImpact` sweep queries.
+- Point-ray entry/exit intervals and material-based game projectile penetration.
+- Per-entry damage attenuation, overlapping material resistance, and persistent
+  material tracking across frame boundaries.
 
 The `dynamics3d` package provides the same body, force, material, and joint concepts using
 `Vec3` and `Quaternion`. It uses the full world-space inertia tensor, including
@@ -252,6 +272,149 @@ The dynamics packages provide body-based `Collide` and `TimeOfImpact` convenienc
 functions. Body-based sweeps also apply static-body and fixed-rotation rules;
 contact queries inspect the current geometry regardless of body type.
 
+`RayInterval(collider, origin, direction)` returns a solid's complete forward
+entry and exit interval, including points and outward normals. Direction need
+not be normalized; distances are in world units. The interval uses the actual
+circle, sphere, or oriented box, so an angled wall has the appropriate longer
+path and a sphere has its actual chord. It is not a cast against inflated bounds.
+`StartsInside` marks a strictly interior origin; `Tangent` marks a ray that
+touches only a boundary. Geometry and motion query inputs are not mutated.
+
+## Projectile penetration and game damage
+
+![Material penetration and remaining target health](examples/browser/preview-penetration.png)
+
+Use `ballistics2d` or `ballistics3d` for shots that can pass through a target.
+These packages own straight point-projectile state and return events; the game
+owns health and decides how to apply those events. They do not change the
+ordinary solid-contact behavior of a dynamics world's CCD.
+
+The model uses kinetic energy `E = mass * speed² / 2`. A material removes
+`Resistance * pathLength` energy while the point travels inside it; there is no
+separate entry cost. Resistance is a constant opposing force, measured in J/m
+when using meters, kilograms, and seconds. Overlapping materials add their
+resistances. Vacuum and zero-resistance material preserve speed.
+
+For a constant resistance `R > 0`, the available interior path is `E / R`.
+If the point cannot reach the exit, it stops inside the target. Reaching the far
+face with exactly zero energy is also a stop, not an exit or a successful
+penetration. Travel consumes simulated time, including deceleration inside a
+wall; a shot does not teleport to the far side.
+
+Here is a complete 3D example. The thin barrier consumes 300 of the launch's
+800 energy units, so the following target receives 62.5 damage and keeps 37.5 HP:
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    "math"
+
+    "github.com/kyrqon/GoSimPhysics/ballistics"
+    "github.com/kyrqon/GoSimPhysics/ballistics3d"
+    "github.com/kyrqon/GoSimPhysics/collision3d"
+    "github.com/kyrqon/GoSimPhysics/math3d"
+)
+
+func main() {
+    shot, err := ballistics3d.NewProjectile(ballistics3d.ProjectileDef{
+        Position: math3d.Vec3{X: -3},
+        Velocity: math3d.Vec3{X: 40},
+        Mass:     1,
+        Damage:   100,
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    targets := []ballistics3d.Target{
+        {
+            ID: "barrier",
+            Collider: collision3d.Collider{
+                Shape: collision3d.Box{
+                    HalfExtents: math3d.Vec3{X: 0.15, Y: 1, Z: 1},
+                },
+            },
+            Material: ballistics.Material{Name: "Game barrier", Resistance: 1000},
+        },
+        {
+            ID: "target",
+            Collider: collision3d.Collider{
+                Shape: collision3d.Box{
+                    HalfExtents: math3d.Vec3{X: 0.2, Y: 0.5, Z: 0.5},
+                },
+                Position: math3d.Vec3{X: 3},
+            },
+            Material: ballistics.Material{Name: "Game target", Resistance: 10000},
+        },
+    }
+    health := map[string]float64{"target": 100} // Owned by the game.
+    for step := 0; step < 120 && !shot.State().Stopped; step++ {
+        events, err := shot.Step(1.0/60.0, targets)
+        if err != nil {
+            log.Fatal(err)
+        }
+        for _, event := range events {
+            if event.Kind == ballistics.Hit {
+                if hp, exists := health[event.TargetID]; exists {
+                    health[event.TargetID] = math.Max(0, hp-event.Damage)
+                }
+            }
+        }
+    }
+    fmt.Printf("target HP: %.1f\n", health["target"])
+}
+```
+
+Use `ballistics2d`, `collision2d`, and `math2d.Vec2` for the equivalent 2D shot.
+`Target.ID` must be nonempty and unique within each step. Target colliders and
+materials are validated and copied before tracing. They form a frozen snapshot
+for that call; callers can supply a new scene snapshot on a following step,
+but target movement between snapshots is not continuously swept.
+
+Each projectile retains its immutable launch origin and cumulative distance.
+Queries use absolute ray intervals from that origin, keeping material boundaries
+stable across frame partitions. Material occupancy persists while a shot is
+inside a wall, so another `Step` does not cause another entry hit. A launch
+inside a solid produces one `Hit` at time zero with `StartedInside` and a zero
+entry normal. Pure tangencies produce no penetration event or material work.
+A zero-resistance solid is transparent to motion but still emits `Hit` and `Exit`.
+
+Events have three kinds:
+
+- `ballistics.Hit`: one damage value on entry, calculated as
+  `BaseDamage * Energy / InitialEnergy`, clamped to `[0, BaseDamage]`.
+- `ballistics.Exit`: successful departure with remaining energy; damage is zero.
+- `ballistics.Stop`: energy exhausted inside or at the far face; damage is zero.
+
+`Event.Energy` is remaining energy at that event, `EntryEnergy` is the energy at
+entry to its target, and `EnergySpent` is the work done by that target's material,
+including earlier steps. `Stop.ActiveTargets` identifies all overlapping solids
+that contain the stopped point. Event `Time` and `Distance` are measured from
+launch. `State.Time` is simulated age and advances by the full successful step,
+even if a stop event occurred earlier; later stopped steps emit no more events.
+Editing the value returned by `State()` does not move the projectile.
+
+`Projectile.MaxEvents` defaults to 64 and counts every hit, exit, and stop in
+one step. Exhaustion returns an error wrapping `ballistics.ErrEventLimit`;
+check it with `errors.Is`. Invalid inputs and numerical failures are also
+errors. A failed step returns no partial events and restores the entire
+projectile, including its material-entry history, so damage can be applied only
+after a successful `Step`.
+
+To use rigid-body geometry as a target, copy its `Shape()`, `Position`, and
+`Angle` or `Rotation` into a collision `Collider` snapshot. Advance the shot
+through the ballistics package. Do not also simulate that same point projectile
+as an ordinary dynamics body: the world's solid CCD response would stop or
+bounce it before the penetration rules are applied.
+
+This is a configurable game model, not a material or ammunition calibration.
+Projectiles are points with straight paths: this layer currently has no finite
+projectile radius, gravity, ricochet, deforming targets, continuously moving
+targets, or rigid-body recoil impulses. Rendering a small sphere for the point
+does not change its collision thickness.
+
 ## Body and joint behavior
 
 Dynamic bodies require an explicit positive mass. Static bodies stay fixed;
@@ -368,7 +531,8 @@ python3 examples/browser/test_browser.py
 ```
 
 The test opens the standalone HTML, checks playback, scenes, controls, camera
-interaction, and mobile layout, and verifies that no external resources are
+interaction, penetration outcomes and game-owned health, and mobile layout,
+and verifies that no external resources are
 requested. If browser policy blocks `file://`, start the local Go demo and set
 `GOSIM_DEMO_URL` to `http://127.0.0.1:8080/` when running the test. In that mode,
 only the initial HTML loads over HTTP; all interactions are tested offline.
@@ -394,6 +558,10 @@ checks rather than using a spatial index. It is intended for small scenes.
 There is no thread safety for concurrent access to the same world and no
 guarantee of bitwise identical floating-point results across platforms.
 
+Projectile penetration has its separate point-path and frozen-target limits
+described above. Its material resistance and damage values are tunable gameplay
+parameters; they are not real-world ballistic predictions.
+
 ## References
 
 The implementation and tests are original. These references explain the
@@ -416,5 +584,10 @@ derivations are documented in
 [`dynamics3d/testdata/README.md`](dynamics3d/testdata/README.md).
 CCD fixture derivations and thin-wall/ricochet cases are documented in
 [`dynamics2d/testdata/CCD.md`](dynamics2d/testdata/CCD.md).
+Penetration tests use original results derived from `E = mass * speed² / 2`,
+`work = resistance * pathLength`, and constant-deceleration travel. They cover
+thin and thick targets, exact stopping thresholds, angled thickness, overlapping
+materials, frame partitioning, damage event ownership, and rollback. These are
+analytical game-model tests, without downloaded real-weapon data.
 
 The project is licensed under GPL-3.0; see [LICENSE](LICENSE).

@@ -161,5 +161,58 @@ class BrowserDemoTests(unittest.TestCase):
         self.assertTrue(self.page.locator("#substeps-input").is_enabled())
 
 
+    def test_penetration_comparisons_show_actual_energy_damage_and_replay(self):
+        self.pause()
+        self.page.locator("#speed-input").select_option("2")
+        for name, dimension in [("penetration", 3), ("penetration2d", 2)]:
+            self.page.evaluate("name => { window.gosimDemo.setScene(name); window.gosimDemo.pause(); }", name)
+            self.assertEqual(self.state()["time"], 0)
+            self.assertEqual(self.state()["dimension"], dimension)
+            self.assertEqual(self.page.locator("#speed-input").input_value(), "0.25")
+            self.assertTrue(self.page.locator("#penetration-note").is_visible())
+            self.assertTrue(self.page.locator("#ccd-note").is_hidden())
+            for control in ["sphere-button", "box-button", "kick-button", "gravity-input", "substeps-input"]:
+                self.assertTrue(self.page.locator(f"#{control}").is_disabled())
+            for method, args in [("spawn", ["sphere"]), ("kick", []), ("configure", [json.dumps({"gravity": 1})])]:
+                result = self.page.evaluate("([method,args]) => JSON.parse(window.gosim[method](...args))", [method, args])
+                self.assertIn("error", result, "unsupported engine control should return an error")
+            self.page.get_by_role("button", name="Single step", exact=True).click()
+            self.assertAlmostEqual(self.state()["time"], 1 / 60, places=12)
+            self.assertAlmostEqual(self.state()["ballistics"][0]["position"]["x"], -3 + 40 / 60, places=10)
+            self.page.evaluate("window.gosimDemo.resume()")
+            self.page.wait_for_function("window.demoState.ballisticsComplete && !window.gosimDemo.isRunning()")
+            state = self.state()
+            shots = {shot["lane"]: shot for shot in state["ballistics"]}
+            for lane, damage, hp, x in [("clear", 100, 0, 2.88), ("thin", 62.5, 37.5, 2.85), ("thick", 0, 100, -0.2)]:
+                shot = shots[lane]
+                self.assertTrue(shot["stopped"])
+                self.assertAlmostEqual(shot["damage"], damage, places=8)
+                self.assertAlmostEqual(shot["hp"], hp, places=8)
+                self.assertAlmostEqual(shot["position"]["x"], x, places=8)
+                self.assertEqual(shot["energy"], 0)
+                target_hits = [event for event in shot["events"] if event["kind"] == "hit" and event["targetID"] == shot["targetID"]]
+                self.assertAlmostEqual(sum(event["damage"] for event in target_hits), damage, places=8)
+            self.assertTrue(shots["thin"]["penetrated"])
+            self.assertAlmostEqual(shots["thin"]["exitEnergy"], 500, places=8)
+            self.assertTrue(shots["thick"]["stoppedInWall"])
+            self.assertFalse(shots["thick"]["penetrated"])
+            self.page.wait_for_function("document.querySelector('[data-lane=thin]').textContent.includes('62.5')")
+            self.assertIn("500 J", self.page.locator('[data-lane="thin"]').inner_text())
+            self.page.wait_for_timeout(100)
+            self.assertEqual(self.state()["time"], state["time"], "completed comparison did not stay paused")
+            self.page.get_by_role("button", name="Reset scene", exact=True).click()
+            self.page.wait_for_function("window.demoState.ballisticsComplete && !window.gosimDemo.isRunning()")
+            self.assertAlmostEqual(self.state()["ballistics"][1]["hp"], 37.5, places=8)
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        self.assertTrue(self.page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"))
+        self.page.evaluate("window.gosimDemo.setScene('stack')")
+        self.assertTrue(self.page.locator("#penetration-note").is_hidden())
+        self.assertEqual(self.page.locator("#speed-input").input_value(), "2")
+        for control in ["sphere-button", "box-button", "kick-button", "gravity-input", "substeps-input"]:
+            self.assertTrue(self.page.locator(f"#{control}").is_enabled())
+        before = self.state()["bodyCount"]
+        self.page.locator("#sphere-button").click()
+        self.assertEqual(self.state()["bodyCount"], before + 1)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -160,3 +160,72 @@ func TestCCDScenesCompareIndependentRealEngineSteps(t *testing.T) {
 		})
 	}
 }
+
+func TestPenetrationScenesUseGoEventsForDamageAndHealth(t *testing.T) {
+	for _, name := range []string{"penetration", "penetration2d"} {
+		t.Run(name, func(t *testing.T) {
+			s, err := New(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			before := s.Snapshot()
+			if before.BodyCount != 8 || len(before.Ballistics) != 3 || before.BallisticsComplete || before.Substeps != 1 || before.Gravity != 0 {
+				t.Fatalf("invalid initial comparison: %+v", before)
+			}
+			if (name == "penetration" && before.Dimension != 3) || (name == "penetration2d" && before.Dimension != 2) {
+				t.Fatal("wrong dimension")
+			}
+			if s.Configure(0, 1) == nil || s.Spawn("sphere") == nil || s.Spawn("box") == nil || s.Kick() == nil {
+				t.Fatal("controlled scene accepted unsupported controls")
+			}
+			if s.Step(0) == nil || s.Step(math.NaN()) == nil || s.Step(.2) == nil {
+				t.Fatal("invalid step accepted")
+			}
+			for tick := 0; tick < 60 && !s.Snapshot().BallisticsComplete; tick++ {
+				if err := s.Step(1.0 / 60); err != nil {
+					t.Fatal(err)
+				}
+			}
+			after := s.Snapshot()
+			if !after.BallisticsComplete || after.Energy != 0 {
+				t.Fatalf("shots never stopped: %+v", after.Ballistics)
+			}
+			for i, want := range []struct {
+				damage, hp, x             float64
+				penetrated, stoppedInWall bool
+			}{{100, 0, 2.88, false, false}, {62.5, 37.5, 2.85, true, false}, {0, 100, -.2, false, true}} {
+				shot := after.Ballistics[i]
+				if !shot.Stopped || math.Abs(shot.Damage-want.damage) > 1e-9 || math.Abs(shot.HP-want.hp) > 1e-9 || math.Abs(shot.Position.X-want.x) > 1e-9 || shot.Penetrated != want.penetrated || shot.StoppedInWall != want.stoppedInWall {
+					t.Fatalf("lane %s: %+v", shot.Lane, shot)
+				}
+				if shot.Penetrated && math.Abs(shot.ExitEnergy-500) > 1e-9 {
+					t.Fatalf("thin wall exit did not retain 500 J: %+v", shot)
+				}
+				targetDamage := 0.0
+				for _, event := range shot.Events {
+					if event.Kind == "hit" && event.TargetID == shot.TargetID {
+						targetDamage += event.Damage
+					}
+				}
+				if targetDamage != shot.Damage {
+					t.Fatal("health ledger disagrees with target Hit events")
+				}
+				if before.Ballistics[i].HP != 100 || before.Ballistics[i].Position.X != -3 || len(before.Ballistics[i].Events) != 0 {
+					t.Fatal("an old snapshot changed after stepping")
+				}
+			}
+			if _, err := json.Marshal(after); err != nil {
+				t.Fatal(err)
+			}
+			// Stepping after the pause cannot apply the same damage again.
+			if err := s.Step(1.0 / 60); err != nil {
+				t.Fatal(err)
+			}
+			for i, shot := range s.Snapshot().Ballistics {
+				if shot.Damage != after.Ballistics[i].Damage || shot.HP != after.Ballistics[i].HP || len(shot.Events) != len(after.Ballistics[i].Events) {
+					t.Fatal("stopped projectile repeated an event")
+				}
+			}
+		})
+	}
+}

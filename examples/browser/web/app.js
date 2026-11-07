@@ -10,13 +10,16 @@
     pendulum: { title: "Pendulum", description: "A fixed distance. Three dimensions of freedom.", dimension: 3 },
     billiards2d: { title: "2D billiards", description: "Momentum and collisions on a two-dimensional table.", dimension: 2 },
     ccd: { title: "CCD thin-wall test", description: "The same fast shot. Continuous contact catches what a discrete step misses.", dimension: 3 },
-    ccd2d: { title: "2D CCD thin-wall test", description: "Two identical circles. One thin wall. One step to see the difference.", dimension: 2 }
+    ccd2d: { title: "2D CCD thin-wall test", description: "Two identical circles. One thin wall. One step to see the difference.", dimension: 2 },
+    penetration: { title: "Penetration lab", description: "Follow the energy. Measure the damage. See where a shot stops.", dimension: 3 },
+    penetration2d: { title: "2D penetration lab", description: "Three straight paths. Thin barriers cost energy; thick barriers stop the shot.", dimension: 2 }
   };
   const palette = ["#70ddc7", "#edb576", "#86acd5", "#a69cdb", "#df9890"];
   let snapshot = null;
   let ready = false;
   let running = true;
   let scale = 1;
+  let ordinaryScale = 1;
   let accumulator = 0;
   let previousTime = 0;
   let fps = 60;
@@ -32,6 +35,8 @@
   const ccdCaption = document.querySelector("#ccd-note p");
   ccdCaption.textContent = ccdCaption.textContent.replace(/one 1\/\d+ s step/, `one 1/${tickHz} s step`);
   const isCCD = () => snapshot?.scene === "ccd" || snapshot?.scene === "ccd2d";
+  const isPenetration = () => snapshot?.scene === "penetration" || snapshot?.scene === "penetration2d";
+  const isControlled = () => isCCD() || isPenetration();
   const camera = { azimuth: 0.65, elevation: 0.4, distance: 19.2, target: { x: 0, y: 2.1, z: 0 } };
   let dragging = null;
 
@@ -98,7 +103,7 @@
       $("scene-title").textContent = scene.title;
       $("scene-description").textContent = scene.description;
       const is2D = snapshot.dimension === 2;
-      $("dimension-label").textContent = is2D ? "2D RIGID BODY SIMULATION" : "3D RIGID BODY SIMULATION";
+      $("dimension-label").textContent = `${is2D ? "2D" : "3D"} ${isPenetration() ? "POINT PROJECTILE SIMULATION" : "RIGID BODY SIMULATION"}`;
       document.querySelectorAll("[data-scene]").forEach((button) => {
         const selected = button.dataset.scene === snapshot.scene;
         button.classList.toggle("selected", selected);
@@ -108,8 +113,9 @@
       $("z-label").hidden = is2D;
       $("sphere-button").lastChild.textContent = is2D ? "Circle" : "Sphere";
       $("ccd-note").hidden = !isCCD();
-      // Preserve the controlled one-substep comparison. Other scenes expose all controls.
-      for (const id of ["sphere-button", "box-button", "kick-button", "gravity-input", "substeps-input"]) $(id).disabled = isCCD();
+      $("penetration-note").hidden = !isPenetration();
+      // These scenes compare controlled launches. Other scenes expose all controls.
+      for (const id of ["sphere-button", "box-button", "kick-button", "gravity-input", "substeps-input"]) $(id).disabled = isControlled();
       canvas.setAttribute("aria-label", is2D ? "Interactive two-dimensional physics scene. Scroll to zoom." : "Interactive three-dimensional physics scene. Drag to orbit and scroll to zoom.");
     }
     if (Number.isFinite(snapshot.gravity) && controls.gravity !== snapshot.gravity) {
@@ -132,6 +138,16 @@
     $("energy-value").innerHTML = `${energy >= 10000 ? `${(energy / 1000).toFixed(1)}k` : energy.toFixed(1)}<span>J</span>`;
     const hasJoint = snapshot.joints?.length > 0;
     $("joint-value").innerHTML = `${hasJoint ? (Number(snapshot.jointError) || 0).toFixed(5) : "—"}<span>m</span>`;
+    if (isPenetration()) updatePenetrationResults();
+  }
+
+  function updatePenetrationResults() {
+    const number = (value) => Number(value).toFixed(1).replace(/\.0$/, "");
+    $("penetration-results").innerHTML = (snapshot.ballistics || []).map((shot) => {
+      const outcome = shot.stoppedInWall ? "Stopped inside barrier" : shot.stopped ? "Stopped in target" : shot.penetrated ? "Barrier penetrated" : "In flight";
+      const exit = !shot.wallID ? "No barrier" : shot.penetrated ? `Wall exit ${number(shot.exitEnergy)} J` : shot.stoppedInWall ? "No wall exit" : "Wall exit pending";
+      return `<article class="shot-result" data-lane="${shot.lane}" style="--shot-color:${shot.color}"><strong>${shot.label}</strong><span class="shot-outcome">${outcome}</span><dl><div><dt>Target damage</dt><dd>${number(shot.damage)}</dd></div><div><dt>Target HP</dt><dd>${number(shot.hp)} / 100</dd></div><div><dt>Shot energy</dt><dd>${number(shot.energy)} J</dd></div></dl><small>${exit}</small></article>`;
+    }).join("");
   }
 
   function updatePlayback() {
@@ -149,18 +165,24 @@
   }
 
   function resetCamera() {
-    camera.azimuth = isCCD() ? 0.18 : 0.65;
-    camera.elevation = isCCD() ? 0.85 : 0.4;
-    camera.distance = isCCD() && snapshot.dimension === 3 ? 12 : 19.2;
-    camera.target = isCCD() ? vec(1.2, 0.6, 0) : vec(0, snapshot?.scene === "pendulum" ? 2.4 : 2.1, 0);
+    camera.azimuth = isControlled() ? 0.18 : 0.65;
+    camera.elevation = isPenetration() ? 0.95 : isCCD() ? 0.85 : 0.4;
+    camera.distance = isPenetration() || isCCD() && snapshot.dimension === 3 ? 12 : 19.2;
+    camera.target = isPenetration() ? vec(0, 0.5, 0) : isCCD() ? vec(1.2, 0.6, 0) : vec(0, snapshot?.scene === "pendulum" ? 2.4 : 2.1, 0);
   }
 
   function setScene(name) {
     if (!ready || !meta[name]) return false;
+    const wasPenetration = isPenetration();
     if (!bridge("reset", name)) return false;
+    if (isPenetration() && !wasPenetration) {
+      ordinaryScale = scale;
+      scale = 0.25;
+    } else if (!isPenetration() && wasPenetration) scale = ordinaryScale;
+    $("speed-input").value = String(scale);
     accumulator = 0;
     resetCamera();
-    if (isCCD()) setRunning(true);
+    if (isControlled()) setRunning(true);
     updateMetrics();
     return true;
   }
@@ -200,7 +222,7 @@
 
   function makeProjector() {
     if (snapshot?.dimension === 2) {
-      const unit = Math.min(width / (isCCD() ? 10 : 17), height / (isCCD() ? 6 : 12)) * (19.2 / camera.distance);
+      const unit = isPenetration() ? Math.min(width / 10, height / 8) * (12 / camera.distance) : Math.min(width / (isCCD() ? 10 : 17), height / (isCCD() ? 6 : 12)) * (19.2 / camera.distance);
       const offsetX = isCCD() ? camera.target.x : 0;
       return {
         project: (p) => ({ x: width / 2 + (p.x - offsetX) * unit, y: height / 2 - p.y * unit, depth: 20 - p.z, factor: unit }),
@@ -393,6 +415,38 @@
     primitives.sort((a, b) => b.depth - a.depth);
     for (const primitive of primitives) drawPrimitive(primitive);
     if (isCCD()) drawCCDAnnotations(projector, bodies);
+    if (isPenetration()) drawPenetrationAnnotations(projector);
+  }
+
+  function drawPenetrationAnnotations(projector) {
+    ctx.save();
+    for (const shot of snapshot.ballistics || []) {
+      const start = position(shot.start);
+      const current = position(shot.position);
+      const target = position(shot.target);
+      ctx.setLineDash([3, 6]);
+      line3D(projector, start, target, color(shot.color, 1, 0.2));
+      line3D(projector, start, current, color(shot.color, 1, 0.7), 1.5);
+      ctx.setLineDash([]);
+      for (const event of shot.events || []) {
+        const p = projector.project(position(event.position));
+        if (!p) continue;
+        ctx.strokeStyle = event.kind === "stop" ? "#f1f6f7" : shot.color;
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        if (event.kind === "stop") {
+          ctx.moveTo(p.x-4, p.y-4); ctx.lineTo(p.x+4, p.y+4);
+          ctx.moveTo(p.x+4, p.y-4); ctx.lineTo(p.x-4, p.y+4);
+        } else ctx.arc(p.x, p.y, event.kind === "exit" ? 5 : 3, 0, Math.PI*2);
+        ctx.stroke();
+      }
+      const label = projector.project(add(target, vec(0, .8, 0)));
+      if (!label) continue;
+      ctx.font = "600 10px 'Segoe UI', sans-serif";
+      ctx.fillStyle = shot.color;
+      ctx.fillText(`${shot.lane.toUpperCase()} · HP ${Number(shot.hp.toFixed(1))}`, clamp(label.x-44, 8, width-110), label.y);
+    }
+    ctx.restore();
   }
 
   function drawCCDAnnotations(projector, bodies) {
@@ -447,7 +501,7 @@
         }
         accumulator -= dt;
         steps++;
-        if (isCCD()) {
+        if (isCCD() || isPenetration() && snapshot.ballisticsComplete) {
           setRunning(false);
           updateMetrics();
           break;
