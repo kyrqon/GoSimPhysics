@@ -22,3 +22,6 @@ go.work
 
 # Local build output
 /bin/
+
+# Optional Python browser-test cache
+__pycache__/

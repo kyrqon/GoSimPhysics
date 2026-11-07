@@ -131,6 +131,35 @@ class BrowserDemoTests(unittest.TestCase):
         self.assertTrue(self.page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), "mobile layout overflows horizontally")
         self.assertGreater(canvas.bounding_box()["height"], 240)
 
+    def test_ccd_comparisons_pause_at_actual_one_step_results(self):
+        for name, dimension in [("ccd", 3), ("ccd2d", 2)]:
+            self.page.locator(f'[data-scene="{name}"]').click()
+            self.page.wait_for_function("window.demoState.time > 0 && !window.gosimDemo.isRunning()")
+            state = self.state()
+            self.assertEqual(state["scene"], name)
+            self.assertEqual(state["dimension"], dimension)
+            self.assertEqual(state["substeps"], 1)
+            self.assertEqual(state["gravity"], 0)
+            self.assertAlmostEqual(state["time"], 1 / 60, places=12)
+            moving = [body for body in state["bodies"] if not body["static"]]
+            self.assertEqual(len(moving), 2)
+            continuous = next(body for body in moving if body["continuous"])
+            discrete = next(body for body in moving if not body["continuous"])
+            self.assertAlmostEqual(continuous["position"]["x"], -0.06, places=4)
+            self.assertAlmostEqual(discrete["position"]["x"], -2 + 400 / 60, places=10)
+            self.assertTrue(self.page.locator("#ccd-note").is_visible())
+            self.assertTrue(self.page.locator("#substeps-input").is_disabled())
+            self.page.wait_for_timeout(100)
+            self.assertEqual(self.state()["time"], state["time"], "comparison did not stay paused")
+            self.page.get_by_role("button", name="Reset scene", exact=True).click()
+            self.page.wait_for_function("window.demoState.time > 0 && !window.gosimDemo.isRunning()")
+            self.assertAlmostEqual(self.state()["time"], 1 / 60, places=12)
+            self.page.get_by_role("button", name="Single step", exact=True).click()
+            self.assertAlmostEqual(self.state()["time"], 2 / 60, places=12)
+        self.page.locator('[data-scene="stack"]').click()
+        self.assertTrue(self.page.locator("#ccd-note").is_hidden())
+        self.assertTrue(self.page.locator("#substeps-input").is_enabled())
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

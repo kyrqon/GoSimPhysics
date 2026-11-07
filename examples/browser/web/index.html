@@ -22,7 +22,7 @@
         <p class="eyebrow">EXPLORE THE ENGINE</p>
         <h1>A world in motion.</h1>
         <p class="panel-intro">Change the scene. Add a little energy.<br>See the physics play out.</p>
-        <div class="section-heading"><h2>Scenes</h2><span>01 — 04</span></div>
+        <div class="section-heading"><h2>Scenes</h2><span>01 — 06</span></div>
         <div class="scene-list" role="group" aria-label="Choose a scene">
           <button class="scene-button engine-control selected" data-scene="stack" aria-pressed="true" disabled>
             <span class="scene-icon"><svg viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="m8 3 6-3 6 3v7l-6 3-6-3V3ZM2 16l6-3 6 3v7l-6 3-6-3v-7Zm12 0 6-3 6 3v7l-6 3-6-3v-7Z" transform="translate(0 1)" stroke="currentColor" stroke-width="1.5"/></svg></span>
@@ -39,6 +39,14 @@
           <button class="scene-button engine-control" data-scene="billiards2d" aria-pressed="false" disabled>
             <span class="scene-icon"><svg viewBox="0 0 28 28" fill="none" aria-hidden="true"><rect x="2" y="4" width="24" height="20" rx="3" stroke="currentColor" stroke-width="1.5"/><circle cx="9" cy="17" r="3" stroke="currentColor" stroke-width="1.5"/><circle cx="19" cy="11" r="3" stroke="currentColor" stroke-width="1.5"/><path d="m11 15 5-3" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2 2"/></svg></span>
             <span class="scene-copy"><strong>2D billiards</strong><small>The original dimension</small></span><span class="dimension-tag dimension-tag-2d">2D</span>
+          </button>
+          <button class="scene-button engine-control" data-scene="ccd" aria-pressed="false" disabled>
+            <span class="scene-icon"><svg viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="M17 3v22M3 9h9m-3-3 3 3-3 3M3 20h20m-3-3 3 3-3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="scene-copy"><strong>CCD thin-wall test</strong><small>Fast motion, continuous contact</small></span><span class="dimension-tag">3D</span>
+          </button>
+          <button class="scene-button engine-control" data-scene="ccd2d" aria-pressed="false" disabled>
+            <span class="scene-icon"><svg viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="M17 3v22M3 9h9m-3-3 3 3-3 3M3 20h20m-3-3 3 3-3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="scene-copy"><strong>2D CCD thin-wall test</strong><small>The same shot in two dimensions</small></span><span class="dimension-tag dimension-tag-2d">2D</span>
           </button>
         </div>
       </section>
@@ -95,6 +103,10 @@
         <div class="metric"><span class="metric-label">BODIES</span><span class="metric-number" id="bodies-value">—</span></div>
         <div class="metric"><span class="metric-label">TOTAL ENERGY</span><span class="metric-number" id="energy-value">0.0<span>J</span></span></div>
         <div class="metric"><span class="metric-label">JOINT ERROR</span><span class="metric-number" id="joint-value">—<span>m</span></span></div>
+      </div>
+      <div class="ccd-note" id="ccd-note" hidden>
+        <div class="ccd-legend"><span><i class="ccd-on"></i>CCD ON · stops at wall</span><span><i class="ccd-off"></i>CCD OFF · tunnels through</span></div>
+        <p>400 m/s · 0.1 m projectile · 0.02 m wall · one 1/60 s step, one substep. Two independent Go worlds keep the comparison fair. Playback pauses after each step; reset to replay the shot.</p>
       </div>
       <footer class="stage-footer"><span><i class="legend-swatch"></i>Dynamic bodies<i class="legend-swatch legend-static"></i>Static geometry<i class="legend-swatch legend-joint"></i>Constraints</span><span class="step-note">Fixed step · 60 Hz</span></footer>
       <p class="timing-note">Playback skips excess catch-up after a long browser stall. Press <kbd>Space</kbd> to pause, <kbd>R</kbd> to reset.</p>

@@ -31,6 +31,7 @@ type RenderBody struct {
 	HalfExtents Vector   `json:"halfExtents"`
 	Radius      float64  `json:"radius"`
 	Static      bool     `json:"static"`
+	Continuous  bool     `json:"continuous"`
 	Color       string   `json:"color"`
 }
 
@@ -54,13 +55,17 @@ type Snapshot struct {
 
 // Session is not safe for concurrent use. The browser invokes it on its Go thread.
 type Session struct {
-	world3  *physics3d.World
-	world2  *physics.World
-	joints3 []*physics3d.DistanceJoint
-	scene   string
-	time    float64
-	gravity float64
-	spawned int
+	world3 *physics3d.World
+	world2 *physics.World
+	// The discrete comparison runs independently so CCD event times cannot give
+	// its otherwise discrete solver additional collision samples.
+	comparison3 *physics3d.World
+	comparison2 *physics.World
+	joints3     []*physics3d.DistanceJoint
+	scene       string
+	time        float64
+	gravity     float64
+	spawned     int
 }
 
 var colors = [...]string{"#5eead4", "#fbbf24", "#93c5fd", "#fb923c", "#c4b5fd", "#fda4af"}
@@ -68,13 +73,27 @@ var colors = [...]string{"#5eead4", "#fbbf24", "#93c5fd", "#fb923c", "#c4b5fd", 
 // New creates one of the named, deterministic demonstration scenes.
 func New(scene string) (*Session, error) {
 	s := &Session{scene: scene, gravity: 9.81}
-	if scene == "billiards2d" {
+	if scene == "billiards2d" || scene == "ccd2d" {
 		s.gravity = 0
 		s.world2 = physics.NewWorld(physics.Vec2{})
+		if scene == "ccd2d" {
+			s.world2.Substeps = 1
+			s.comparison2 = physics.NewWorld(physics.Vec2{})
+			s.comparison2.Substeps = 1
+			return s, s.setupCCD2D()
+		}
 		return s, s.setup2D()
 	}
-	if scene != "stack" && scene != "rain" && scene != "pendulum" {
+	if scene != "stack" && scene != "rain" && scene != "pendulum" && scene != "ccd" {
 		return nil, fmt.Errorf("unknown scene %q", scene)
+	}
+	if scene == "ccd" {
+		s.gravity = 0
+		s.world3 = physics3d.NewWorld(physics3d.Vec3{})
+		s.world3.Substeps = 1
+		s.comparison3 = physics3d.NewWorld(physics3d.Vec3{})
+		s.comparison3.Substeps = 1
+		return s, s.setupCCD3D()
 	}
 	s.world3 = physics3d.NewWorld(physics3d.Vec3{Y: -s.gravity})
 	s.world3.VelocityIterations, s.world3.PositionIterations = 16, 6
@@ -82,6 +101,53 @@ func New(scene string) (*Session, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+// The two lanes differ only in Continuous. At 400 m/s the 0.1 m projectile
+// travels 6.67 m in one 1/60 s step, passing a 0.02 m wall between samples.
+// The browser pauses after this first step so both actual results remain visible.
+func (s *Session) setupCCD3D() error {
+	for i, z := range []float64{-1.1, 1.1} {
+		world := s.world3
+		if i == 1 {
+			world = s.comparison3
+		}
+		if _, err := world.CreateBody(physics3d.BodyDef{
+			Shape:    physics3d.Box{HalfExtents: physics3d.Vec3{X: 0.01, Y: 0.5, Z: 0.55}},
+			Position: physics3d.Vec3{Y: 0.6, Z: z},
+		}); err != nil {
+			return err
+		}
+		if _, err := world.CreateBody(physics3d.BodyDef{
+			Type: physics3d.Dynamic, Shape: physics3d.Sphere{Radius: 0.05}, Mass: 1,
+			Position: physics3d.Vec3{X: -2, Y: 0.6, Z: z}, Velocity: physics3d.Vec3{X: 400},
+			Continuous: i == 0,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Session) setupCCD2D() error {
+	for i, y := range []float64{1.1, -1.1} {
+		world := s.world2
+		if i == 1 {
+			world = s.comparison2
+		}
+		if _, err := world.CreateBody(physics.BodyDef{
+			Shape: physics.Box{HalfExtents: physics.Vec2{X: 0.01, Y: 0.5}}, Position: physics.Vec2{Y: y},
+		}); err != nil {
+			return err
+		}
+		if _, err := world.CreateBody(physics.BodyDef{
+			Type: physics.Dynamic, Shape: physics.Circle{Radius: 0.05}, Mass: 1,
+			Position: physics.Vec2{X: -2, Y: y}, Velocity: physics.Vec2{X: 400}, Continuous: i == 0,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Session) setup3D() error {
@@ -201,8 +267,14 @@ func (s *Session) Step(dt float64) error {
 	var err error
 	if s.world3 != nil {
 		err = s.world3.Step(dt)
+		if err == nil && s.comparison3 != nil {
+			err = s.comparison3.Step(dt)
+		}
 	} else {
 		err = s.world2.Step(dt)
+		if err == nil && s.comparison2 != nil {
+			err = s.comparison2.Step(dt)
+		}
 	}
 	if err == nil {
 		s.time += dt
@@ -218,8 +290,14 @@ func (s *Session) Configure(gravity float64, substeps int) error {
 	s.gravity = gravity
 	if s.world3 != nil {
 		s.world3.Gravity, s.world3.Substeps = physics3d.Vec3{Y: -gravity}, substeps
+		if s.comparison3 != nil {
+			s.comparison3.Gravity, s.comparison3.Substeps = s.world3.Gravity, substeps
+		}
 	} else {
 		s.world2.Gravity, s.world2.Substeps = physics.Vec2{Y: -gravity}, substeps
+		if s.comparison2 != nil {
+			s.comparison2.Gravity, s.comparison2.Substeps = s.world2.Gravity, substeps
+		}
 	}
 	return nil
 }
@@ -315,20 +393,28 @@ func (s *Session) Snapshot() Snapshot {
 	state := Snapshot{Scene: s.scene, Time: s.time, Gravity: s.gravity, Bodies: []RenderBody{}, Joints: []RenderJoint{}}
 	if s.world3 != nil {
 		state.Dimension, state.Substeps = 3, s.world3.Substeps
-		for i, b := range s.world3.Bodies() {
-			body := RenderBody{ID: i, Position: vector(b.Position), Rotation: Rotation{b.Rotation.X, b.Rotation.Y, b.Rotation.Z, b.Rotation.W}, Static: b.Type() == physics3d.Static, Color: colors[i%len(colors)]}
-			if body.Static {
-				body.Color = "#344657"
+		for _, world := range []*physics3d.World{s.world3, s.comparison3} {
+			if world == nil {
+				continue
 			}
-			switch shape := b.Shape().(type) {
-			case physics3d.Sphere:
-				body.Shape, body.Radius = "sphere", shape.Radius
-			case physics3d.Box:
-				body.Shape, body.HalfExtents = "box", vector(shape.HalfExtents)
-			}
-			state.Bodies = append(state.Bodies, body)
-			if b.Type() == physics3d.Dynamic {
-				state.Energy += 0.5*b.Mass()*b.Velocity.LengthSquared() + 0.5*b.AngularVelocity.Dot(b.AngularMomentum()) + b.Mass()*s.gravity*b.Position.Y
+			for _, b := range world.Bodies() {
+				id := len(state.Bodies)
+				body := RenderBody{ID: id, Position: vector(b.Position), Rotation: Rotation{b.Rotation.X, b.Rotation.Y, b.Rotation.Z, b.Rotation.W}, Static: b.Type() == physics3d.Static, Continuous: b.Continuous, Color: colors[id%len(colors)]}
+				if body.Static {
+					body.Color = "#344657"
+				} else if s.scene == "ccd" {
+					body.Color = ccdColor(body.Continuous)
+				}
+				switch shape := b.Shape().(type) {
+				case physics3d.Sphere:
+					body.Shape, body.Radius = "sphere", shape.Radius
+				case physics3d.Box:
+					body.Shape, body.HalfExtents = "box", vector(shape.HalfExtents)
+				}
+				state.Bodies = append(state.Bodies, body)
+				if b.Type() == physics3d.Dynamic {
+					state.Energy += 0.5*b.Mass()*b.Velocity.LengthSquared() + 0.5*b.AngularVelocity.Dot(b.AngularMomentum()) + b.Mass()*s.gravity*b.Position.Y
+				}
 			}
 		}
 		for _, j := range s.joints3 {
@@ -338,25 +424,40 @@ func (s *Session) Snapshot() Snapshot {
 		}
 	} else {
 		state.Dimension, state.Substeps = 2, s.world2.Substeps
-		for i, b := range s.world2.Bodies() {
-			body := RenderBody{ID: i, Position: Vector{X: b.Position.X, Y: b.Position.Y}, Rotation: Rotation{Z: math.Sin(b.Angle / 2), W: math.Cos(b.Angle / 2)}, Static: b.Type() == physics.Static, Color: colors[i%len(colors)]}
-			if body.Static {
-				body.Color = "#344657"
+		for _, world := range []*physics.World{s.world2, s.comparison2} {
+			if world == nil {
+				continue
 			}
-			switch shape := b.Shape().(type) {
-			case physics.Circle:
-				body.Shape, body.Radius = "circle", shape.Radius
-			case physics.Box:
-				body.Shape, body.HalfExtents = "box", Vector{X: shape.HalfExtents.X, Y: shape.HalfExtents.Y}
-			}
-			state.Bodies = append(state.Bodies, body)
-			if b.Type() == physics.Dynamic {
-				state.Energy += 0.5*b.Mass()*b.Velocity.LengthSquared() + 0.5*b.Inertia()*b.AngularVelocity*b.AngularVelocity + b.Mass()*s.gravity*b.Position.Y
+			for _, b := range world.Bodies() {
+				id := len(state.Bodies)
+				body := RenderBody{ID: id, Position: Vector{X: b.Position.X, Y: b.Position.Y}, Rotation: Rotation{Z: math.Sin(b.Angle / 2), W: math.Cos(b.Angle / 2)}, Static: b.Type() == physics.Static, Continuous: b.Continuous, Color: colors[id%len(colors)]}
+				if body.Static {
+					body.Color = "#344657"
+				} else if s.scene == "ccd2d" {
+					body.Color = ccdColor(body.Continuous)
+				}
+				switch shape := b.Shape().(type) {
+				case physics.Circle:
+					body.Shape, body.Radius = "circle", shape.Radius
+				case physics.Box:
+					body.Shape, body.HalfExtents = "box", Vector{X: shape.HalfExtents.X, Y: shape.HalfExtents.Y}
+				}
+				state.Bodies = append(state.Bodies, body)
+				if b.Type() == physics.Dynamic {
+					state.Energy += 0.5*b.Mass()*b.Velocity.LengthSquared() + 0.5*b.Inertia()*b.AngularVelocity*b.AngularVelocity + b.Mass()*s.gravity*b.Position.Y
+				}
 			}
 		}
 	}
 	state.BodyCount = len(state.Bodies)
 	return state
+}
+
+func ccdColor(continuous bool) string {
+	if continuous {
+		return "#5eead4"
+	}
+	return "#fda4af"
 }
 
 func finite(value float64) bool { return !math.IsNaN(value) && !math.IsInf(value, 0) }

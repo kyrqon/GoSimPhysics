@@ -33,9 +33,13 @@ Go source before serving it. Use `-addr 127.0.0.1:8081` to choose another port.
 This option also works with managed browsers that restrict local-file access.
 
 The demo includes 3D stacking, mixed-shape falling bodies, a spherical pendulum,
-and 2D billiards. Pause or single-step, spawn shapes, apply impulses, change
+2D billiards, and 2D/3D CCD thin-wall comparisons. Pause or single-step, spawn
+shapes, apply impulses, change
 gravity and substeps, and drag/scroll to orbit/zoom the 3D camera. Simulation
 runs in the actual Go library; JavaScript handles rendering and controls.
+The CCD comparisons run the same shot in independent worlds, with CCD enabled
+in one and disabled in the other. They automatically pause after one 1/60-second
+step so the actual final positions remain visible; reset replays the shot.
 
 To regenerate the standalone HTML after changing the library or frontend:
 
@@ -59,6 +63,7 @@ in [`THIRD_PARTY_LICENSES.txt`](examples/browser/THIRD_PARTY_LICENSES.txt).
   restitution and Coulomb friction.
 - Rigid distance joints between two body-local anchors.
 - Direct contact queries through `Collide`.
+- Opt-in continuous collision detection and pure `TimeOfImpact` sweep queries.
 
 The 3D package provides the same body, force, material, and joint concepts using
 `Vec3` and `Quaternion`. It uses the full world-space inertia tensor, including
@@ -115,8 +120,8 @@ Advance the simulation with a fixed positive time step, such as `1.0 / 60.0`,
 independent of rendering frequency. In a real-time host, accumulate elapsed
 time, call `Step(dt)` while at least `dt` remains, and retain the remainder for
 the next frame. Bound catch-up work so a stalled renderer cannot create an
-unbounded simulation backlog. Smaller substeps help contact stability but do
-not provide continuous collision detection.
+unbounded simulation backlog. Smaller substeps help contact stability; enable
+`Continuous` on fast bodies when they need swept collision detection.
 
 ## Embedding the 3D library
 
@@ -175,6 +180,64 @@ both pull and push. Connected bodies do not collide unless `CollideConnected`
 is true. `Anchors` returns their current world positions; compare their distance
 with `Length` to inspect constraint error. `RemoveBody` also removes its joints.
 
+## Continuous collision detection (CCD)
+
+![CCD enabled versus discrete collision detection](examples/browser/preview-ccd.png)
+
+Set `Continuous: true` on a fast body's definition in either package. The flag
+can also be changed on an existing body between steps. A pair uses CCD when
+either body has it enabled and at least one body is dynamic; joint collision
+filtering still applies. Other pairs retain discrete collision detection.
+
+```go
+bullet, err := world.CreateBody(physics.BodyDef{
+    Type:       physics.Dynamic,
+    Shape:      physics.Circle{Radius: 0.05},
+    Position:   physics.Vec2{X: -2},
+    Velocity:   physics.Vec2{X: 400},
+    Mass:       1,
+    Continuous: true,
+})
+if err != nil {
+    return err
+}
+// Use physics3d.BodyDef, Vec3, and Sphere for the equivalent 3D body.
+_ = bullet
+```
+
+For each substep the world integrates forces once, searches for the earliest
+contact, advances to it, resolves impulses, and then simulates the remaining
+time. Impact velocities are used for the next sweep, allowing several bounces
+within one frame. Fixed-orientation primitive sweeps use analytic casts;
+rotating boxes use bounded conservative advancement with angular motion bounds.
+Rounded circle/sphere-to-box corners are tested against the actual shape.
+
+`TimeOfImpact(a, b, dt)` is a pure query returning `(TOIResult, hit, error)`.
+`TOIResult.Time` is in **seconds**, not a fraction, and `Contact` contains the
+predicted world-space normal and points. The query holds linear and angular
+velocities constant, ignores forces and the `Continuous` flags, honors static
+and fixed-rotation bodies, and reports initial contact or overlap at time zero.
+
+CCD uses shape-scaled spatial tolerances and piecewise constant velocity and
+angular-velocity motion. In 3D, CCD motion segments retain world angular momentum
+when recovering angular velocity; their rotational approximation differs from
+the default midpoint integration. Initial overlap and constraint position
+projection still use the discrete position solver. Direct transform edits are
+teleports and are not swept.
+
+`World.MaxTOIEvents` defaults to 32 impacts **per substep**. If that budget is
+exhausted, `Step` returns an error wrapping `ErrTOILimit`; check it with
+`errors.Is`. An unrepresentable or nonconverging sweep also returns an error.
+The complete step is rolled back and pending forces are retained; it never
+silently advances the unchecked remainder. Use smaller time steps, more
+substeps, or a larger event budget for demanding scenes. Extremely close
+rotational grazing contacts may require a smaller step to converge.
+Already-active rotating contacts use a query-only continuation skin of
+`max(8 * sweepTolerance, min(1e-4, 1e-3 * smallerShapeFeature))` to approximate
+persistent contact
+without an unbounded number of zero-time impulses. This does not move the real
+bodies or change the first-impact query; it permits skin-scale contact error.
+
 Body positions, angles, and velocities may be edited between steps and must
 remain finite. Changing a transform directly teleports the body; it does not
 sweep through the intervening space. `Step` validates inputs and restores body
@@ -219,9 +282,11 @@ window or a rendering library.
 
 This is an initial implementation. Contact and joint constraints are solved
 approximately; stability depends on scale, time step, solver settings, and the
-scene. Collision detection is discrete, so fast objects can tunnel through thin
-shapes. There is no continuous collision detection, sleeping, compound shape
-support, or renderer in the core library. The browser example supplies a small
+scene. Fast bodies without `Continuous` can tunnel through thin shapes. CCD is
+tolerance-based with finite iteration and impact budgets, and does not provide
+exact accelerated or arbitrary gyroscopic trajectories over an entire frame.
+There is no sleeping, compound shape support, or renderer in the core library.
+The browser example supplies a small
 Canvas renderer for demonstration.
 
 The broad phase scans all body pairs with AABB rejection, taking O(n²) pair
@@ -240,11 +305,15 @@ integration and constraint-solving techniques used:
 - [Glenn Fiedler, Integration Basics](https://gafferongames.com/post/integration_basics/)
 - [David Eberly, Dynamic Collision Detection using Oriented Bounding Boxes](https://www.geometrictools.com/Documentation/DynamicCollisionDetection.pdf)
 - [David Baraff, An Introduction to Physically Based Modeling: Rigid Body Simulation](https://www.cs.cmu.edu/~baraff/pbm/rigid1.pdf)
+- [Box2D collision and time-of-impact documentation](https://box2d.org/documentation/md_collision.html)
+- [Bullet continuous convex collision / conservative advancement](https://github.com/bulletphysics/bullet3/blob/master/src/BulletCollision/NarrowPhaseCollision/btContinuousConvexCollision.cpp)
 
 Tests include original analytical impact fixtures, free-fall convergence,
 anisotropic angular-momentum conservation, resting bodies, stacking, spherical
 pendulums, friction direction invariance, and invalid-step rollback. Fixture
 derivations are documented in `testdata/README.md` and
 `physics3d/testdata/README.md`.
+CCD fixture derivations and thin-wall/ricochet cases are documented in
+[`testdata/CCD.md`](testdata/CCD.md).
 
 The project is licensed under GPL-3.0; see [LICENSE](LICENSE).

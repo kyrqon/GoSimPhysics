@@ -8,7 +8,9 @@
     stack: { title: "Stack & tumble", description: "A balancing act of mass, friction, and gravity.", dimension: 3 },
     rain: { title: "Gravity rain", description: "Spheres, boxes, and a cascade of collisions.", dimension: 3 },
     pendulum: { title: "Pendulum", description: "A fixed distance. Three dimensions of freedom.", dimension: 3 },
-    billiards2d: { title: "2D billiards", description: "Momentum and collisions on a two-dimensional table.", dimension: 2 }
+    billiards2d: { title: "2D billiards", description: "Momentum and collisions on a two-dimensional table.", dimension: 2 },
+    ccd: { title: "CCD thin-wall test", description: "The same fast shot. Continuous contact catches what a discrete step misses.", dimension: 3 },
+    ccd2d: { title: "2D CCD thin-wall test", description: "Two identical circles. One thin wall. One step to see the difference.", dimension: 2 }
   };
   const palette = ["#70ddc7", "#edb576", "#86acd5", "#a69cdb", "#df9890"];
   let snapshot = null;
@@ -24,6 +26,7 @@
   let width = 1;
   let height = 1;
   const dt = 1 / 60;
+  const isCCD = () => snapshot?.scene === "ccd" || snapshot?.scene === "ccd2d";
   const camera = { azimuth: 0.65, elevation: 0.4, distance: 19.2, target: { x: 0, y: 2.1, z: 0 } };
   let dragging = null;
 
@@ -99,6 +102,9 @@
       $("camera-hint").querySelector("span").innerHTML = is2D ? "2D view<span class=\"hint-divider\">·</span>Scroll to zoom" : "Drag to orbit<span class=\"hint-divider\">·</span>Scroll to zoom";
       $("z-label").hidden = is2D;
       $("sphere-button").lastChild.textContent = is2D ? "Circle" : "Sphere";
+      $("ccd-note").hidden = !isCCD();
+      // Preserve the controlled one-substep comparison. Other scenes expose all controls.
+      for (const id of ["sphere-button", "box-button", "kick-button", "gravity-input", "substeps-input"]) $(id).disabled = isCCD();
       canvas.setAttribute("aria-label", is2D ? "Interactive two-dimensional physics scene. Scroll to zoom." : "Interactive three-dimensional physics scene. Drag to orbit and scroll to zoom.");
     }
     if (Number.isFinite(snapshot.gravity) && controls.gravity !== snapshot.gravity) {
@@ -138,10 +144,10 @@
   }
 
   function resetCamera() {
-    camera.azimuth = 0.65;
-    camera.elevation = 0.4;
-    camera.distance = 19.2;
-    camera.target = vec(0, snapshot?.scene === "pendulum" ? 2.4 : 2.1, 0);
+    camera.azimuth = isCCD() ? 0.18 : 0.65;
+    camera.elevation = isCCD() ? 0.85 : 0.4;
+    camera.distance = isCCD() && snapshot.dimension === 3 ? 12 : 19.2;
+    camera.target = isCCD() ? vec(1.2, 0.6, 0) : vec(0, snapshot?.scene === "pendulum" ? 2.4 : 2.1, 0);
   }
 
   function setScene(name) {
@@ -149,6 +155,7 @@
     if (!bridge("reset", name)) return false;
     accumulator = 0;
     resetCamera();
+    if (isCCD()) setRunning(true);
     updateMetrics();
     return true;
   }
@@ -188,9 +195,10 @@
 
   function makeProjector() {
     if (snapshot?.dimension === 2) {
-      const unit = Math.min(width / 17, height / 12) * (19.2 / camera.distance);
+      const unit = Math.min(width / (isCCD() ? 10 : 17), height / (isCCD() ? 6 : 12)) * (19.2 / camera.distance);
+      const offsetX = isCCD() ? camera.target.x : 0;
       return {
-        project: (p) => ({ x: width / 2 + p.x * unit, y: height / 2 - p.y * unit, depth: 20 - p.z, factor: unit }),
+        project: (p) => ({ x: width / 2 + (p.x - offsetX) * unit, y: height / 2 - p.y * unit, depth: 20 - p.z, factor: unit }),
         eye: vec(0, 3, 100),
         is2D: true
       };
@@ -379,6 +387,45 @@
     }
     primitives.sort((a, b) => b.depth - a.depth);
     for (const primitive of primitives) drawPrimitive(primitive);
+    if (isCCD()) drawCCDAnnotations(projector, bodies);
+  }
+
+  function drawCCDAnnotations(projector, bodies) {
+    ctx.save();
+    for (const body of bodies) {
+      if (body.static) continue;
+      const current = position(body.position);
+      const start = projector.project(vec(-2, current.y, current.z));
+      const end = projector.project(current);
+      if (!start || !end) continue;
+      // These are measurement guides from the scene's initial position to the
+      // actual Go snapshot, not a second simulation or an animated trajectory.
+      ctx.setLineDash([4, 5]);
+      line3D(projector, vec(-2, current.y, current.z), current, color(body.color, 1, 0.55), 1.5);
+      ctx.setLineDash([]);
+      ctx.strokeStyle = color(body.color, 1, 0.8);
+      ctx.lineWidth = 1.3;
+      for (const [point, radius] of [[start, 4], [end, Math.max(7, body.radius * end.factor + 4)]]) {
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      const labelX = clamp(end.x + 13, 12, Math.max(12, width - 145));
+      const labelY = clamp(end.y - 15, 80, height - 60);
+      ctx.font = "600 11px 'Segoe UI', sans-serif";
+      ctx.fillStyle = body.color;
+      ctx.fillText(body.continuous ? "CCD ON" : "CCD OFF · discrete", labelX, labelY);
+      ctx.font = "11px ui-monospace, monospace";
+      ctx.fillStyle = "#d4e1e9";
+      ctx.fillText(`x = ${current.x.toFixed(3)} m`, labelX, labelY + 17);
+    }
+    const wall = projector.project(projector.is2D ? vec(0, 2.1) : vec(0, 2.4, 0));
+    if (wall) {
+      ctx.font = "10px 'Segoe UI', sans-serif";
+      ctx.fillStyle = "#a8bac9";
+      ctx.fillText("0.02 m wall", wall.x - 29, wall.y - 12);
+    }
+    ctx.restore();
   }
 
   function frame(timestamp) {
@@ -395,6 +442,11 @@
         }
         accumulator -= dt;
         steps++;
+        if (isCCD()) {
+          setRunning(false);
+          updateMetrics();
+          break;
+        }
       }
       // Bound catch-up work and explicitly discard delayed time after a stall.
       if (steps === 8 && accumulator >= dt) accumulator %= dt;

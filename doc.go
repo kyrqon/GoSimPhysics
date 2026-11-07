@@ -17,10 +17,15 @@
 // and stepping methods. A failed Step preserves body state and accumulated forces.
 //
 // The simulation uses semi-implicit Euler integration and approximate iterative
-// constraints. Collision detection is discrete, and the broad phase scans all
-// body pairs with AABB rejection. Fast bodies can tunnel through thin shapes.
+// constraints. Enable BodyDef.Continuous for swept contact detection on fast
+// bodies. TimeOfImpact provides pure constant-velocity motion queries. Impacts
+// consume the remaining substep time, with World.MaxTOIEvents limiting work;
+// exhaustion or failed convergence rolls back the complete step.
+// The broad phase scans body pairs with AABB rejection. Bodies without CCD can
+// tunnel through thin shapes; initial overlaps and position projection remain
+// part of the discrete solver. CCD uses finite, shape-scaled tolerances.
 // For 3D simulation, use github.com/kyrqon/GoSimPhysics/physics3d.
-// There is no continuous collision detection, sleeping, or
+// There is no sleeping or
 // cross-platform bitwise determinism guarantee. A world and its bodies must be
 // accessed from one goroutine at a time, and bodies must not be copied.
 package physics

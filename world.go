@@ -16,6 +16,8 @@ type World struct {
 	VelocityIterations, PositionIterations int
 	// RestitutionThreshold suppresses bounce below this relative approach speed.
 	RestitutionThreshold float64
+	// MaxTOIEvents limits CCD impacts per substep. Exhaustion rolls back Step.
+	MaxTOIEvents int
 
 	bodies []*Body
 	joints []*DistanceJoint
@@ -27,7 +29,7 @@ type World struct {
 func NewWorld(gravity Vec2) *World {
 	return &World{
 		Gravity: gravity, Substeps: 4, VelocityIterations: 12,
-		PositionIterations: 4, RestitutionThreshold: 1,
+		PositionIterations: 4, RestitutionThreshold: 1, MaxTOIEvents: 32,
 	}
 }
 
@@ -90,12 +92,12 @@ type bodyState struct {
 // impulses, and positional constraint correction. dt must be positive and finite.
 // Forces and torques act over all substeps and clear only after a successful step.
 // Invalid input or arithmetic overflow leaves the body's state and forces intact.
-// Collision detection is discrete: fast objects can tunnel through thin shapes.
+// Bodies with Continuous enabled use swept collision detection between impacts.
 func (w *World) Step(dt float64) error {
 	if w == nil {
 		return fmt.Errorf("physics: nil world")
 	}
-	if !finite(dt) || dt <= 0 || w.Substeps < 1 || w.VelocityIterations < 1 || w.PositionIterations < 1 {
+	if !finite(dt) || dt <= 0 || w.Substeps < 1 || w.VelocityIterations < 1 || w.PositionIterations < 1 || w.MaxTOIEvents < 1 {
 		return fmt.Errorf("physics: positive finite dt and positive solver iteration counts required")
 	}
 	h := dt / float64(w.Substeps)
@@ -114,13 +116,14 @@ func (w *World) Step(dt float64) error {
 	for i, b := range w.bodies {
 		before[i] = bodyState{b.Position, b.Velocity, b.Angle, b.AngularVelocity}
 	}
-	rollback := func() error {
+	rollback := func(cause error) error {
 		for i, b := range w.bodies {
 			b.Position, b.Velocity = before[i].position, before[i].velocity
 			b.Angle, b.AngularVelocity = before[i].angle, before[i].angularVelocity
 		}
-		return fmt.Errorf("physics: simulation overflow; reduce the time step or input magnitudes")
+		return fmt.Errorf("physics: step failed: %w", cause)
 	}
+	useCCD := w.hasContinuous()
 	for substep := 0; substep < w.Substeps; substep++ {
 		for _, b := range w.bodies {
 			if b.kind == Static {
@@ -135,19 +138,26 @@ func (w *World) Step(dt float64) error {
 			if b.fixedRotation {
 				b.AngularVelocity = 0
 			}
-			b.Position = b.Position.Add(b.Velocity.Mul(h))
-			b.Angle += b.AngularVelocity * h
+			if !useCCD {
+				b.Position = b.Position.Add(b.Velocity.Mul(h))
+				b.Angle += b.AngularVelocity * h
+			}
 			if !b.validState() || !bodyBoundsFinite(b) {
-				return rollback()
+				return rollback(fmt.Errorf("integration overflow; reduce dt or input magnitudes"))
+			}
+		}
+		if useCCD {
+			if err := w.advanceContinuous(h); err != nil {
+				return rollback(err)
 			}
 		}
 		contacts, err := w.contactConstraints()
 		if err != nil {
-			return rollback()
+			return rollback(err)
 		}
 		for _, joint := range w.joints {
 			if !joint.validGeometry() {
-				return rollback()
+				return rollback(fmt.Errorf("joint geometry overflow"))
 			}
 			joint.prepare(h)
 		}
@@ -162,25 +172,25 @@ func (w *World) Step(dt float64) error {
 		for i := 0; i < w.PositionIterations; i++ {
 			for _, contact := range contacts {
 				if !collisionGeometryFinite(contact.a, contact.b) {
-					return rollback()
+					return rollback(fmt.Errorf("collision geometry overflow"))
 				}
 				correctContactPosition(contact.a, contact.b)
 			}
 			for _, joint := range w.joints {
 				if !joint.validGeometry() {
-					return rollback()
+					return rollback(fmt.Errorf("joint geometry overflow"))
 				}
 				joint.solvePosition()
 			}
 		}
 		for _, b := range w.bodies {
 			if !b.validState() || !bodyBoundsFinite(b) {
-				return rollback()
+				return rollback(fmt.Errorf("constraint solver overflow; reduce dt or input magnitudes"))
 			}
 		}
 		for _, joint := range w.joints {
 			if !joint.validGeometry() {
-				return rollback()
+				return rollback(fmt.Errorf("joint geometry overflow"))
 			}
 		}
 	}

@@ -25,6 +25,8 @@ type BodyDef struct {
 	Mass, Restitution, Friction   float64
 	LinearDamping, AngularDamping float64
 	FixedRotation                 bool
+	// Continuous enables swept collision detection for pairs involving this body.
+	Continuous bool
 }
 
 // Body is a rigid body with a single centered shape. Position and Velocity use
@@ -34,6 +36,8 @@ type BodyDef struct {
 type Body struct {
 	Position, Velocity     Vec2
 	Angle, AngularVelocity float64
+	// Continuous may be changed between steps to enable or disable CCD.
+	Continuous bool
 
 	kind                          BodyType
 	shape                         Shape
@@ -74,6 +78,7 @@ func newBody(def BodyDef) (*Body, error) {
 		restitution: def.Restitution, friction: def.Friction,
 		linearDamping: def.LinearDamping, angularDamping: def.AngularDamping,
 		fixedRotation: def.FixedRotation,
+		Continuous:    def.Continuous,
 	}
 	if def.Type == Dynamic {
 		body.mass, body.invMass = def.Mass, 1/def.Mass

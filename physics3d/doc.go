@@ -19,9 +19,15 @@
 // coordinates and nonzero finite quaternions; direct position edits teleport.
 //
 // Collision detection uses sphere tests and 15-axis oriented-box SAT with face
-// clipping or edge contacts. The iterative solver is approximate and discrete:
-// fast bodies may tunnel through thin geometry. The broad phase scans all pairs
-// with AABB rejection, intended for small scenes. There is no CCD, sleeping,
+// clipping or edge contacts. Enable BodyDef.Continuous for swept detection on
+// fast bodies, or use TimeOfImpact for a pure constant-velocity motion query.
+// CCD consumes remaining time after impacts and has a finite MaxTOIEvents
+// budget; failed steps preserve all body state and pending forces. Its motion
+// segments use constant world angular velocity with momentum recovery, rather
+// than the default midpoint rotational approximation. Initial overlap and
+// position correction remain discrete, and CCD has shape-scaled tolerances.
+// The broad phase scans pairs with AABB rejection, intended for small scenes.
+// Fast bodies without CCD may tunnel through thin geometry. There is no sleeping,
 // compound shapes, concurrent-world access, or cross-platform bitwise determinism
 // guarantee. The host application supplies rendering and the game loop.
 package physics3d

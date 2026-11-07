@@ -101,3 +101,62 @@ func TestSceneControlsValidateAndBoundSpawning(t *testing.T) {
 		t.Fatal("unknown scene accepted")
 	}
 }
+
+func TestCCDScenesCompareIndependentRealEngineSteps(t *testing.T) {
+	for _, name := range []string{"ccd", "ccd2d"} {
+		t.Run(name, func(t *testing.T) {
+			s, err := New(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			before := s.Snapshot()
+			if before.Gravity != 0 || before.Substeps != 1 || before.BodyCount != 4 {
+				t.Fatalf("comparison must begin with matching single-step worlds: %+v", before)
+			}
+			if name == "ccd" && (s.comparison3 == nil || s.world3 == s.comparison3 || before.Dimension != 3) ||
+				name == "ccd2d" && (s.comparison2 == nil || s.world2 == s.comparison2 || before.Dimension != 2) {
+				t.Fatal("CCD and discrete lanes must use independent worlds of the requested dimension")
+			}
+			if err := s.Step(1.0 / 60); err != nil {
+				t.Fatal(err)
+			}
+			after := s.Snapshot()
+			count := 0
+			for i, body := range after.Bodies {
+				if body.ID != i {
+					t.Fatal("combined snapshots have duplicate or unstable body IDs")
+				}
+				if body.Static {
+					continue
+				}
+				count++
+				if before.Bodies[i].Position.X != -2 || body.Radius != 0.05 {
+					t.Fatal("comparison projectiles differ in geometry or initial position")
+				}
+				if body.Continuous {
+					if math.Abs(body.Position.X-(-0.06)) > 1e-4 || body.Color != "#5eead4" {
+						t.Fatalf("CCD projectile should stop before the wall, got %+v", body)
+					}
+				} else if math.Abs(body.Position.X-(-2+400.0/60)) > 1e-9 || body.Color != "#fda4af" {
+					t.Fatalf("discrete projectile should pass the thin wall, got %+v", body)
+				}
+			}
+			if count != 2 || after.Time != 1.0/60 {
+				t.Fatal("comparison must advance each lane exactly once")
+			}
+			if _, err := json.Marshal(after); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Configure(3, 2); err != nil {
+				t.Fatal(err)
+			}
+			if s.world3 != nil {
+				if s.comparison3.Gravity != s.world3.Gravity || s.comparison3.Substeps != s.world3.Substeps {
+					t.Fatal("world controls do not apply equally to both 3D lanes")
+				}
+			} else if s.comparison2.Gravity != s.world2.Gravity || s.comparison2.Substeps != s.world2.Substeps {
+				t.Fatal("world controls do not apply equally to both 2D lanes")
+			}
+		})
+	}
+}
