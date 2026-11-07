@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0c131d">
+  <title>GoSimPhysics · Playground</title>
+  <!-- INLINE_STYLE -->
+</head>
+<body>
+  <header class="app-header">
+    <a class="brand" href="#" aria-label="GoSimPhysics playground">
+      <svg class="brand-icon" viewBox="0 0 36 36" fill="none" aria-hidden="true"><path d="m18 2 14 8v16l-14 8-14-8V10L18 2Z" stroke="currentColor" stroke-width="1.5"/><path d="m4 10 14 8 14-8M18 18v16M11 6l14 8v8l-7 4-7-4V14l7-4" stroke="currentColor" stroke-width="1.5"/></svg>
+      <span>GoSim<span class="brand-light">Physics</span><span class="brand-divider"></span><span class="brand-subtitle">PLAYGROUND</span></span>
+    </a>
+    <div class="header-right"><span class="local-badge">LOCAL &amp; OFFLINE</span><span class="engine-status" id="engine-status" role="status"><span class="status-dot"></span><span id="engine-status-text">Starting engine</span></span></div>
+  </header>
+
+  <main class="workspace">
+    <aside class="control-panel" aria-label="Simulation controls">
+      <section class="scene-section">
+        <p class="eyebrow">EXPLORE THE ENGINE</p>
+        <h1>A world in motion.</h1>
+        <p class="panel-intro">Change the scene. Add a little energy.<br>See the physics play out.</p>
+        <div class="section-heading"><h2>Scenes</h2><span>01 — 04</span></div>
+        <div class="scene-list" role="group" aria-label="Choose a scene">
+          <button class="scene-button engine-control selected" data-scene="stack" aria-pressed="true" disabled>
+            <span class="scene-icon"><svg viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="m8 3 6-3 6 3v7l-6 3-6-3V3ZM2 16l6-3 6 3v7l-6 3-6-3v-7Zm12 0 6-3 6 3v7l-6 3-6-3v-7Z" transform="translate(0 1)" stroke="currentColor" stroke-width="1.5"/></svg></span>
+            <span class="scene-copy"><strong>Stack &amp; tumble</strong><small>Contacts &amp; collisions</small></span><span class="dimension-tag">3D</span>
+          </button>
+          <button class="scene-button engine-control" data-scene="rain" aria-pressed="false" disabled>
+            <span class="scene-icon"><svg viewBox="0 0 28 28" fill="none" aria-hidden="true"><circle cx="8" cy="6" r="3" stroke="currentColor" stroke-width="1.5"/><circle cx="20" cy="14" r="4" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="23" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M20 2v5M8 12v4m12 6v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+            <span class="scene-copy"><strong>Gravity rain</strong><small>Bounce &amp; momentum</small></span><span class="dimension-tag">3D</span>
+          </button>
+          <button class="scene-button engine-control" data-scene="pendulum" aria-pressed="false" disabled>
+            <span class="scene-icon"><svg viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="M3 3h15M10 3l11 17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="10" cy="4" r="2" fill="currentColor"/><circle cx="22" cy="22" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M4 13c0 6 4 10 10 11" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2 3"/></svg></span>
+            <span class="scene-copy"><strong>Pendulum</strong><small>Distance constraint</small></span><span class="dimension-tag">3D</span>
+          </button>
+          <button class="scene-button engine-control" data-scene="billiards2d" aria-pressed="false" disabled>
+            <span class="scene-icon"><svg viewBox="0 0 28 28" fill="none" aria-hidden="true"><rect x="2" y="4" width="24" height="20" rx="3" stroke="currentColor" stroke-width="1.5"/><circle cx="9" cy="17" r="3" stroke="currentColor" stroke-width="1.5"/><circle cx="19" cy="11" r="3" stroke="currentColor" stroke-width="1.5"/><path d="m11 15 5-3" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2 2"/></svg></span>
+            <span class="scene-copy"><strong>2D billiards</strong><small>The original dimension</small></span><span class="dimension-tag dimension-tag-2d">2D</span>
+          </button>
+        </div>
+      </section>
+
+      <section class="playback-section" aria-label="Playback">
+        <div class="section-heading"><h2>Playback</h2><kbd>SPACE</kbd></div>
+        <div class="playback-row">
+          <button class="button button-primary engine-control" id="pause-button" disabled><span id="pause-icon" aria-hidden="true">Ⅱ</span><span id="pause-label">Pause</span></button>
+          <button class="button button-icon engine-control" id="step-button" aria-label="Single step" title="Pause and advance one step" disabled><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m4 4 8 6-8 6V4Zm11 0v12" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></button>
+          <button class="button button-icon engine-control" id="reset-button" aria-label="Reset scene" title="Reset scene (R)" disabled><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M4.5 6a6.5 6.5 0 1 1-1 6M4 2v5h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </div>
+      </section>
+
+      <section class="interaction-section" aria-label="Add motion">
+        <div class="section-heading"><h2>Add to the world</h2><span class="small-note">Try it</span></div>
+        <div class="spawn-row">
+          <button class="button button-secondary engine-control" id="sphere-button" disabled><span class="shape-circle" aria-hidden="true"></span>Sphere</button>
+          <button class="button button-secondary engine-control" id="box-button" disabled><span class="shape-box" aria-hidden="true"></span>Box</button>
+        </div>
+        <button class="button button-kick engine-control" id="kick-button" disabled><svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="m10.5 1.5-7 9h5l-1 6 7-9h-5l1-6Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>Give it a nudge<span aria-hidden="true">↗</span></button>
+      </section>
+
+      <section class="settings-section" aria-label="World settings">
+        <div class="section-heading"><h2>World settings</h2></div>
+        <label class="slider-heading" for="gravity-input"><span>Gravity</span><output id="gravity-value" for="gravity-input">9.81 <span>m/s²</span></output></label>
+        <input class="engine-control" id="gravity-input" type="range" min="0" max="20" step="0.01" value="9.81" disabled>
+        <div class="range-endpoints"><span>Zero gravity</span><span>20 m/s²</span></div>
+        <div class="select-row"><label for="speed-input">Time scale</label><select id="speed-input" class="engine-control" disabled><option value="0.25">0.25× · slow</option><option value="0.5">0.5×</option><option value="1" selected>1× · real time</option><option value="2">2×</option></select></div>
+        <div class="select-row"><label for="substeps-input">Substeps</label><select id="substeps-input" class="engine-control" disabled><option value="1">1 · basic</option><option value="4" selected>4 · balanced</option><option value="8">8 · precise</option></select></div>
+      </section>
+      <div class="panel-footnote"><span class="footnote-mark" aria-hidden="true">⌘</span><p>Driven by the Go physics library.<br>Everything runs on your device.</p></div>
+    </aside>
+
+    <section class="simulation-panel" aria-label="Physics simulation">
+      <div class="stage-heading">
+        <div><div class="stage-eyebrow"><span class="live-dot"></span><span id="dimension-label">3D RIGID BODY SIMULATION</span></div><h2 id="scene-title">Stack &amp; tumble</h2><p id="scene-description">A balancing act of mass, friction, and gravity.</p></div>
+        <button class="view-button" id="view-button" title="Reset camera view"><svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M6 2H2v4m10-4h4v4M2 12v4h4m10-4v4h-4M6 6h6v6H6V6Z" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Reset view</span></button>
+      </div>
+
+      <div class="stage" id="stage">
+        <canvas id="simulation-canvas" tabindex="0" aria-label="Interactive physics scene. Drag to orbit the 3D camera and scroll to zoom."></canvas>
+        <div class="stage-vignette" aria-hidden="true"></div>
+        <div class="stage-top-left"><span class="scene-pill" id="playback-status">LIVE SIMULATION</span></div>
+        <div class="stage-top-right"><span class="fps-dot"></span><span id="fps-value">—</span> FPS</div>
+        <div class="camera-hint" id="camera-hint"><svg viewBox="0 0 16 18" fill="none" aria-hidden="true"><rect x="3" y="1" width="10" height="15" rx="5" stroke="currentColor"/><path d="M8 4v3" stroke="currentColor" stroke-linecap="round"/></svg><span>Drag to orbit<span class="hint-divider">·</span>Scroll to zoom</span></div>
+        <div class="axis-legend" aria-hidden="true"><span class="axis-x">X</span><span class="axis-y">Y</span><span class="axis-z" id="z-label">Z</span><span class="axis-label">WORLD</span></div>
+        <div class="loading-overlay" id="loading-overlay" role="status"><div class="loading-orbit"><span></span></div><strong>Preparing your world</strong><span>Starting the physics engine…</span></div>
+        <div class="fatal-overlay" id="fatal-overlay" role="alert" hidden><span class="error-symbol">!</span><strong>The engine couldn't start</strong><p id="fatal-message"></p><button class="button button-secondary" id="reload-button">Try again</button></div>
+        <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+      </div>
+
+      <div class="metrics" aria-label="Simulation metrics">
+        <div class="metric"><span class="metric-label">SIMULATION TIME</span><span class="metric-number" id="time-value">0.00<span>s</span></span></div>
+        <div class="metric"><span class="metric-label">BODIES</span><span class="metric-number" id="bodies-value">—</span></div>
+        <div class="metric"><span class="metric-label">TOTAL ENERGY</span><span class="metric-number" id="energy-value">0.0<span>J</span></span></div>
+        <div class="metric"><span class="metric-label">JOINT ERROR</span><span class="metric-number" id="joint-value">—<span>m</span></span></div>
+      </div>
+      <footer class="stage-footer"><span><i class="legend-swatch"></i>Dynamic bodies<i class="legend-swatch legend-static"></i>Static geometry<i class="legend-swatch legend-joint"></i>Constraints</span><span class="step-note">Fixed step · 60 Hz</span></footer>
+      <p class="timing-note">Playback skips excess catch-up after a long browser stall. Press <kbd>Space</kbd> to pause, <kbd>R</kbd> to reset.</p>
+    </section>
+  </main>
+
+  <!-- WASM_RUNTIME -->
+  <!-- WASM_BINARY -->
+  <!-- INLINE_APP -->
+</body>
+</html>

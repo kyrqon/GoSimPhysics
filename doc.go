@@ -19,7 +19,8 @@
 // The simulation uses semi-implicit Euler integration and approximate iterative
 // constraints. Collision detection is discrete, and the broad phase scans all
 // body pairs with AABB rejection. Fast bodies can tunnel through thin shapes.
-// There is no continuous collision detection, sleeping, 3D simulation, or
+// For 3D simulation, use github.com/kyrqon/GoSimPhysics/physics3d.
+// There is no continuous collision detection, sleeping, or
 // cross-platform bitwise determinism guarantee. A world and its bodies must be
 // accessed from one goroutine at a time, and bodies must not be copied.
 package physics

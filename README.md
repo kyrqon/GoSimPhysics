@@ -1,11 +1,54 @@
 # GoSimPhysics
 
-GoSimPhysics is a small Go library for 2D rigid-body simulation in game engines.
+GoSimPhysics is a Go library for 2D and 3D rigid-body simulation in game engines.
 Embed it in your game or engine; the host application owns the game loop,
 rendering, input, and conversion between world units and screen coordinates.
 
 The module path is `github.com/kyrqon/GoSimPhysics`; its root package is named
 `physics`. Requires Go 1.27 or later, with no third-party dependencies.
+
+| Simulation | Import path | Shapes and orientation |
+| --- | --- | --- |
+| 2D | `github.com/kyrqon/GoSimPhysics` | Circles, rotated rectangles, scalar angles |
+| 3D | `github.com/kyrqon/GoSimPhysics/physics3d` | Spheres, oriented boxes, quaternions |
+
+## Interactive browser demo
+
+![The GoSimPhysics browser playground](examples/browser/preview.png)
+
+After cloning the repository, double-click
+[`examples/browser/demo.html`](examples/browser/demo.html) to open the included
+interactive demo. The file contains the Go WebAssembly engine, renderer, and
+all assets, and works offline in a current browser. Go is not required to view
+this prebuilt file.
+
+Alternatively, with Go installed, run the example from the repository root:
+
+```sh
+go run ./examples/browser
+```
+
+Open `http://127.0.0.1:8080`. This command rebuilds the WebAssembly from the local
+Go source before serving it. Use `-addr 127.0.0.1:8081` to choose another port.
+This option also works with managed browsers that restrict local-file access.
+
+The demo includes 3D stacking, mixed-shape falling bodies, a spherical pendulum,
+and 2D billiards. Pause or single-step, spawn shapes, apply impulses, change
+gravity and substeps, and drag/scroll to orbit/zoom the 3D camera. Simulation
+runs in the actual Go library; JavaScript handles rendering and controls.
+
+To regenerate the standalone HTML after changing the library or frontend:
+
+```sh
+go generate ./examples/browser
+# Or export to another file:
+go run ./examples/browser -export /tmp/gosim-demo.html
+```
+
+Frontend sources are in `examples/browser/web`; the Go-to-browser bridge is in
+`examples/browser/wasm`. No JavaScript package installation or CDN is used.
+The generated file includes the matching Go runtime; its license is reproduced
+in [`THIRD_PARTY_LICENSES.txt`](examples/browser/THIRD_PARTY_LICENSES.txt).
 
 ## Implemented features
 
@@ -17,12 +60,19 @@ The module path is `github.com/kyrqon/GoSimPhysics`; its root package is named
 - Rigid distance joints between two body-local anchors.
 - Direct contact queries through `Collide`.
 
+The 3D package provides the same body, force, material, and joint concepts using
+`Vec3` and `Quaternion`. It uses the full world-space inertia tensor, including
+torque-free precession of anisotropic bodies. Box collision tests all 15 SAT
+axes; face clipping produces up to four contacts, while edge/edge contacts use
+the closest points on the supporting edges. Tangential impulses are limited to
+a Coulomb friction disk, so friction behaves consistently in all directions.
+
 The solver uses semi-implicit Euler integration, sequential contact impulses,
 and positional correction. `NewWorld` defaults to four substeps, twelve velocity
 iterations, four position iterations, and a restitution speed threshold of
 1 world unit per second. These settings are public fields on `World`.
 
-## Embedding the library
+## Embedding the 2D library
 
 Use consistent units: meters, kilograms, seconds, and radians. The examples use
 positive Y upward, so gravity points downward. Angles increase counterclockwise.
@@ -67,6 +117,36 @@ time, call `Step(dt)` while at least `dt` remains, and retain the remainder for
 the next frame. Bound catch-up work so a stalled renderer cannot create an
 unbounded simulation backlog. Smaller substeps help contact stability but do
 not provide continuous collision detection.
+
+## Embedding the 3D library
+
+```go
+world := physics3d.NewWorld(physics3d.Vec3{Y: -9.81})
+body, err := world.CreateBody(physics3d.BodyDef{
+    Type:     physics3d.Dynamic,
+    Shape:    physics3d.Box{HalfExtents: physics3d.Vec3{X: 0.5, Y: 0.5, Z: 0.5}},
+    Position: physics3d.Vec3{Y: 4},
+    Rotation: physics3d.QuaternionFromAxisAngle(physics3d.Vec3{Y: 1}, 0.4),
+    Mass:     1,
+    Friction: 0.6,
+})
+if err != nil {
+    return err
+}
+if err := world.Step(1.0 / 60); err != nil {
+    return err
+}
+// Copy body.Position and body.Rotation to the host engine's transform.
+_ = body
+```
+
+Import `github.com/kyrqon/GoSimPhysics/physics3d` in the surrounding Go program.
+3D uses a right-handed coordinate system and world-space angular velocities,
+torques, forces, and application points. Quaternions have `X, Y, Z, W` fields;
+the zero rotation in a body definition defaults to identity. Other nonzero
+rotations are normalized. `Inertia` returns local principal moments, and
+`AngularMomentum` returns world-space angular momentum. 3D distance joints use
+`Vec3` local anchors and otherwise match the 2D API.
 
 ## Body and joint behavior
 
@@ -116,6 +196,20 @@ go test -cover ./...
 go vet ./...
 ```
 
+Optional browser interaction tests use Python and Playwright:
+
+```sh
+python3 -m pip install playwright
+python3 -m playwright install chromium
+python3 examples/browser/test_browser.py
+```
+
+The test opens the standalone HTML, checks playback, scenes, controls, camera
+interaction, and mobile layout, and verifies that no external resources are
+requested. If browser policy blocks `file://`, start the local Go demo and set
+`GOSIM_DEMO_URL` to `http://127.0.0.1:8080/` when running the test. In that mode,
+only the initial HTML loads over HTTP; all interactions are tested offline.
+
 The falling example drops a ball onto a static ground box and prints height and
 vertical velocity. The pendulum example connects a moving ball to a static
 anchor and prints the measured and target joint lengths. Neither needs a
@@ -126,8 +220,9 @@ window or a rendering library.
 This is an initial implementation. Contact and joint constraints are solved
 approximately; stability depends on scale, time step, solver settings, and the
 scene. Collision detection is discrete, so fast objects can tunnel through thin
-shapes. There is no continuous collision detection, sleeping, 3D simulation,
-compound shape support, or renderer.
+shapes. There is no continuous collision detection, sleeping, compound shape
+support, or renderer in the core library. The browser example supplies a small
+Canvas renderer for demonstration.
 
 The broad phase scans all body pairs with AABB rejection, taking O(n²) pair
 checks rather than using a spatial index. It is intended for small scenes.
@@ -143,5 +238,13 @@ integration and constraint-solving techniques used:
 - [Erin Catto, Sequential Impulses (GDC 2006)](https://box2d.org/files/ErinCatto_SequentialImpulses_GDC2006.pdf)
 - [Erin Catto, Contact Manifolds (GDC 2007)](https://box2d.org/files/ErinCatto_ContactManifolds_GDC2007.pdf)
 - [Glenn Fiedler, Integration Basics](https://gafferongames.com/post/integration_basics/)
+- [David Eberly, Dynamic Collision Detection using Oriented Bounding Boxes](https://www.geometrictools.com/Documentation/DynamicCollisionDetection.pdf)
+- [David Baraff, An Introduction to Physically Based Modeling: Rigid Body Simulation](https://www.cs.cmu.edu/~baraff/pbm/rigid1.pdf)
+
+Tests include original analytical impact fixtures, free-fall convergence,
+anisotropic angular-momentum conservation, resting bodies, stacking, spherical
+pendulums, friction direction invariance, and invalid-step rollback. Fixture
+derivations are documented in `testdata/README.md` and
+`physics3d/testdata/README.md`.
 
 The project is licensed under GPL-3.0; see [LICENSE](LICENSE).
