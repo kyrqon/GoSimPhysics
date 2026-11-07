@@ -1,0 +1,42 @@
+[
+  {
+    "name": "elastic_unequal_mass",
+    "mass_a": 1,
+    "mass_b": 3,
+    "velocity_a": 4,
+    "velocity_b": 0,
+    "restitution": 1,
+    "expected_a": -2,
+    "expected_b": 2
+  },
+  {
+    "name": "partially_elastic_unequal_mass",
+    "mass_a": 1,
+    "mass_b": 3,
+    "velocity_a": 4,
+    "velocity_b": 0,
+    "restitution": 0.5,
+    "expected_a": -0.5,
+    "expected_b": 1.5
+  },
+  {
+    "name": "inelastic_unequal_mass",
+    "mass_a": 1,
+    "mass_b": 3,
+    "velocity_a": 4,
+    "velocity_b": 0,
+    "restitution": 0,
+    "expected_a": 1,
+    "expected_b": 1
+  },
+  {
+    "name": "elastic_equal_mass_exchange",
+    "mass_a": 2,
+    "mass_b": 2,
+    "velocity_a": 3,
+    "velocity_b": -1,
+    "restitution": 1,
+    "expected_a": -1,
+    "expected_b": 3
+  }
+]
